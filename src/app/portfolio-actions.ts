@@ -103,33 +103,59 @@ function computeAction(
     position: PortfolioPosition,
     analysis: AnalysisResult
 ): PortfolioAction {
-    const { current_price, trading_plan } = analysis;
+    const { current_price, success_probability } = analysis;
     const { buy_price } = position;
-    const { stop_loss, take_profit_levels } = trading_plan;
-
-    // Check stop loss
-    if (current_price <= stop_loss.price) {
-        return 'STOP_LOSS_HIT';
-    }
-
-    // Check take profit levels (assuming levels are sorted by price ascending)
-    const tp1 = take_profit_levels[0]?.target_price;
-    const tp2 = take_profit_levels[1]?.target_price;
-    const tp3 = take_profit_levels[2]?.target_price;
-
-    if (tp3 && current_price >= tp3) {
+    
+    // Calculate P/L percentage from entry
+    const plPercent = ((current_price - buy_price) / buy_price) * 100;
+    const isInProfit = plPercent > 0;
+    const isInLoss = plPercent < 0;
+    
+    // === PROFIT SCENARIOS ===
+    
+    // Big winner: Up 25%+ → Take profits
+    if (plPercent >= 25) {
         return 'SELL_ALL';
     }
-
-    if ((tp1 && current_price >= tp1) || (tp2 && current_price >= tp2)) {
-        return 'SELL_PARTIAL';
+    
+    // Good profit: Up 10-25% → Consider taking some off
+    if (plPercent >= 10) {
+        return 'TAKE_PROFIT';
     }
-
-    // Check if good to add more (score high and price dipped below entry)
-    if (analysis.success_probability >= 70 && current_price < buy_price * 0.97) {
+    
+    // Small profit with weakening setup → Take profit before it reverses
+    if (isInProfit && plPercent >= 5 && success_probability < 50) {
+        return 'TAKE_PROFIT';
+    }
+    
+    // === LOSS SCENARIOS ===
+    
+    // Severe loss: Down 20%+ with weak analysis → Cut losses
+    if (plPercent <= -20 && success_probability < 50) {
+        return 'CUT_LOSS';
+    }
+    
+    // Stop loss hit: Down 15%+ with very weak analysis → Exit
+    if (plPercent <= -15 && success_probability < 40) {
+        return 'STOP_LOSS';
+    }
+    
+    // Down but setup still good: Consider averaging down
+    if (isInLoss && plPercent <= -5 && success_probability >= 70) {
         return 'ADD_MORE';
     }
-
+    
+    // Down with okay setup: Just hold
+    if (isInLoss && success_probability >= 50) {
+        return 'HOLD';
+    }
+    
+    // Down with weak setup but not severe: Hold but watch closely
+    if (isInLoss && success_probability < 50 && plPercent > -15) {
+        return 'HOLD'; // Could add a 'WATCH' status later
+    }
+    
+    // === DEFAULT ===
     return 'HOLD';
 }
 

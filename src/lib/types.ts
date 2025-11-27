@@ -150,10 +150,11 @@ export interface AnalysisResult {
 // Portfolio & Watchlist Types
 export type PortfolioAction = 
   | 'HOLD'
-  | 'SELL_PARTIAL'
-  | 'SELL_ALL'
-  | 'ADD_MORE'
-  | 'STOP_LOSS_HIT';
+  | 'TAKE_PROFIT'      // In profit, good time to sell some
+  | 'SELL_ALL'         // Hit major target or should exit completely  
+  | 'ADD_MORE'         // Good setup, price dipped - average down
+  | 'STOP_LOSS'        // Hit stop loss level, exit to limit losses
+  | 'CUT_LOSS';        // Position deteriorated, consider exiting
 
 export interface PortfolioPosition {
   id: string;

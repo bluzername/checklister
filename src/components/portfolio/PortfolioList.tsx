@@ -137,7 +137,7 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                     <div className="bg-white rounded-xl border border-gray-200 p-4">
                         <div className="text-xs text-gray-500 mb-1">Alerts</div>
                         <div className="text-xl font-bold text-red-600">
-                            {positions.filter(p => p.action === 'STOP_LOSS_HIT').length}
+                            {positions.filter(p => p.action === 'STOP_LOSS' || p.action === 'CUT_LOSS').length}
                         </div>
                     </div>
                 </div>
