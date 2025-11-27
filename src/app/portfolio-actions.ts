@@ -2,7 +2,9 @@
 
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { analyzeTicker } from '@/lib/analysis';
-import { PortfolioPosition, PortfolioAction, AnalysisResult } from '@/lib/types';
+import { PortfolioPosition, PortfolioAction, AnalysisResult, PositionSells, PriceLevelSell } from '@/lib/types';
+
+export type SellPriceLevel = 'stop_loss' | 'pt1' | 'pt2' | 'pt3';
 
 export async function getPortfolio(): Promise<{ success: boolean; data?: PortfolioPosition[]; error?: string }> {
     try {
@@ -91,6 +93,84 @@ export async function deletePosition(id: string): Promise<{ success: boolean; er
 
         if (error) {
             return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+}
+
+export async function recordSellAtPrice(
+    positionId: string,
+    priceLevel: SellPriceLevel,
+    sharesSold: number,
+    sellPrice: number
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!isSupabaseConfigured()) {
+            return { success: false, error: 'Database not configured' };
+        }
+        const supabase = await createClient();
+        
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            return { success: false, error: 'Not authenticated' };
+        }
+
+        // Get current position
+        const { data: position, error: fetchError } = await supabase
+            .from('portfolios')
+            .select('*')
+            .eq('id', positionId)
+            .eq('user_id', user.id)
+            .single();
+
+        if (fetchError || !position) {
+            return { success: false, error: fetchError?.message || 'Position not found' };
+        }
+
+        // Calculate remaining shares
+        const currentSells: PositionSells = position.sells || {};
+        const totalSold = 
+            (currentSells.stop_loss?.shares_sold || 0) +
+            (currentSells.pt1?.shares_sold || 0) +
+            (currentSells.pt2?.shares_sold || 0) +
+            (currentSells.pt3?.shares_sold || 0);
+        
+        const remainingShares = position.quantity - totalSold;
+        
+        if (sharesSold > remainingShares) {
+            return { success: false, error: `Cannot sell more than ${remainingShares} remaining shares` };
+        }
+
+        // Create the new sell record
+        const sellRecord: PriceLevelSell = {
+            shares_sold: sharesSold,
+            sell_price: sellPrice,
+            sell_date: new Date().toISOString()
+        };
+
+        // Merge with existing sells (accumulate if already sold at this level)
+        const existingSell = currentSells[priceLevel];
+        if (existingSell) {
+            sellRecord.shares_sold += existingSell.shares_sold;
+        }
+
+        const updatedSells: PositionSells = {
+            ...currentSells,
+            [priceLevel]: sellRecord
+        };
+
+        // Update the position
+        const { error: updateError } = await supabase
+            .from('portfolios')
+            .update({ sells: updatedSells })
+            .eq('id', positionId)
+            .eq('user_id', user.id);
+
+        if (updateError) {
+            return { success: false, error: updateError.message };
         }
 
         return { success: true };
@@ -198,6 +278,15 @@ export async function analyzePortfolio(): Promise<{
                     const profitLoss = analysis.current_price - position.buy_price;
                     const profitLossPercent = ((analysis.current_price - position.buy_price) / position.buy_price) * 100;
 
+                    // Calculate remaining shares
+                    const sells: PositionSells = position.sells || {};
+                    const totalSold = 
+                        (sells.stop_loss?.shares_sold || 0) +
+                        (sells.pt1?.shares_sold || 0) +
+                        (sells.pt2?.shares_sold || 0) +
+                        (sells.pt3?.shares_sold || 0);
+                    const remaining_shares = position.quantity - totalSold;
+
                     return {
                         ...position,
                         current_price: analysis.current_price,
@@ -205,10 +294,20 @@ export async function analyzePortfolio(): Promise<{
                         profit_loss: profitLoss,
                         profit_loss_percent: profitLossPercent,
                         analysis,
+                        remaining_shares,
                     } as PortfolioPosition;
                 } catch {
                     // If analysis fails, return position without analysis
-                    return position as PortfolioPosition;
+                    const sells: PositionSells = position.sells || {};
+                    const totalSold = 
+                        (sells.stop_loss?.shares_sold || 0) +
+                        (sells.pt1?.shares_sold || 0) +
+                        (sells.pt2?.shares_sold || 0) +
+                        (sells.pt3?.shares_sold || 0);
+                    return {
+                        ...position,
+                        remaining_shares: position.quantity - totalSold,
+                    } as PortfolioPosition;
                 }
             })
         );
@@ -251,6 +350,15 @@ export async function analyzePosition(id: string): Promise<{
         const profitLoss = analysis.current_price - position.buy_price;
         const profitLossPercent = ((analysis.current_price - position.buy_price) / position.buy_price) * 100;
 
+        // Calculate remaining shares
+        const sells: PositionSells = position.sells || {};
+        const totalSold = 
+            (sells.stop_loss?.shares_sold || 0) +
+            (sells.pt1?.shares_sold || 0) +
+            (sells.pt2?.shares_sold || 0) +
+            (sells.pt3?.shares_sold || 0);
+        const remaining_shares = position.quantity - totalSold;
+
         return {
             success: true,
             data: {
@@ -260,6 +368,7 @@ export async function analyzePosition(id: string): Promise<{
                 profit_loss: profitLoss,
                 profit_loss_percent: profitLossPercent,
                 analysis,
+                remaining_shares,
             } as PortfolioPosition,
         };
     } catch (error) {

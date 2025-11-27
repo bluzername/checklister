@@ -79,8 +79,8 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                     <p className="text-gray-500 text-sm">Add your first position to start tracking your portfolio.</p>
                 </div>
             ) : (
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <table className="w-full">
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+                    <table className="w-full min-w-[900px]">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -95,6 +95,18 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                                     P/L
                                 </th>
+                                <th className="px-3 py-3 text-center text-xs font-semibold text-red-500 uppercase tracking-wider">
+                                    Stop
+                                </th>
+                                <th className="px-3 py-3 text-center text-xs font-semibold text-emerald-600 uppercase tracking-wider">
+                                    PT1
+                                </th>
+                                <th className="px-3 py-3 text-center text-xs font-semibold text-teal-600 uppercase tracking-wider">
+                                    PT2
+                                </th>
+                                <th className="px-3 py-3 text-center text-xs font-semibold text-blue-600 uppercase tracking-wider">
+                                    PT3
+                                </th>
                                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                                     Action
                                 </th>
@@ -108,6 +120,7 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                                     position={position}
                                     onDelete={() => loadPortfolio(true)}
                                     onSelect={onSelectPosition}
+                                    onUpdate={() => loadPortfolio(true)}
                                 />
                             ))}
                         </tbody>

@@ -156,6 +156,20 @@ export type PortfolioAction =
   | 'STOP_LOSS'        // Hit stop loss level, exit to limit losses
   | 'CUT_LOSS';        // Position deteriorated, consider exiting
 
+// Track sells at each price level
+export interface PriceLevelSell {
+  shares_sold: number;
+  sell_price: number;
+  sell_date: string;
+}
+
+export interface PositionSells {
+  stop_loss?: PriceLevelSell;
+  pt1?: PriceLevelSell;
+  pt2?: PriceLevelSell;
+  pt3?: PriceLevelSell;
+}
+
 export interface PortfolioPosition {
   id: string;
   user_id: string;
@@ -164,12 +178,15 @@ export interface PortfolioPosition {
   quantity: number;
   date_added: string;
   notes?: string;
+  // Track partial sells at different price levels (stored as JSON in DB)
+  sells?: PositionSells;
   // Computed fields (not stored in DB)
   current_price?: number;
   action?: PortfolioAction;
   profit_loss?: number;
   profit_loss_percent?: number;
   analysis?: AnalysisResult;
+  remaining_shares?: number;
 }
 
 export interface WatchlistItem {
