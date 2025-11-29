@@ -2,7 +2,7 @@ export type TradeType = 'SWING_LONG' | 'SWING_SHORT' | 'HOLD' | 'AVOID';
 export type MarketStatus = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 export type FundamentalStatus = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 export type TrendStatus = 'UPTREND' | 'DOWNTREND' | 'CONSOLIDATION';
-export type MomentumStatus = 'OVERBOUGHT' | 'OVERSOLD' | 'NEUTRAL' | 'OPTIMAL';
+export type MomentumStatus = 'OVERBOUGHT' | 'OVERSOLD' | 'NEUTRAL' | 'OPTIMAL' | 'OPTIMAL_BUY' | 'EXTREME';
 export type PatternType = 'BULL_FLAG' | 'GAP_UP' | 'BREAKOUT' | 'NONE';
 export type SectorRank = 'TOP_3' | 'MIDDLE' | 'BOTTOM_3';
 
@@ -212,6 +212,65 @@ export interface AnalysisResult {
     sma50?: number;
     ema8?: number;
   }[];
+  
+  // Phase 1: Market Regime Context
+  market_regime?: {
+    regime: 'BULL' | 'CHOPPY' | 'CRASH';
+    confidence: number;
+    details: {
+      spyAbove50SMA: boolean;
+      spyAbove200SMA: boolean;
+      vixLevel: number;
+      trendStrength: number;
+      volatilityEnvironment: 'LOW' | 'NORMAL' | 'HIGH' | 'EXTREME';
+    };
+  };
+  regime_thresholds?: {
+    minEntryScore: number;
+    minRRRatio: number;
+    requireVolumeConfirm: boolean;
+    requireMultiTimeframe: boolean;
+    allowShorts: boolean;
+    description: string;
+  };
+  regime_adjusted?: boolean;
+  original_score?: number; // Score before regime adjustment
+  
+  // Phase 2: Multi-Timeframe Analysis
+  multi_timeframe?: {
+    daily_score: number;
+    hour4_score: number;
+    combined_score: number;
+    alignment: 'STRONG_BUY' | 'BUY' | 'CONSIDER' | 'SKIP';
+    macd_4h_status: 'POSITIVE' | 'TURNING_POSITIVE' | 'NEGATIVE';
+    rsi_4h: number;
+    resistance_4h: number;
+    support_4h: number;
+  };
+  
+  // Phase 3: Volume Profile (enhanced)
+  volume_profile?: {
+    rvol: number;
+    obv_trending: boolean;
+    obv_value: number;
+    cmf_value: number;
+    cmf_positive: boolean;
+    interpretation: string;
+  };
+  
+  // Phase 4: Divergence Detection
+  divergence?: {
+    type: 'REGULAR_BULLISH' | 'REGULAR_BEARISH' | 'HIDDEN_BULLISH' | 'HIDDEN_BEARISH' | 'NONE';
+    indicator: 'RSI' | 'MACD';
+    strength: number;
+    implication: 'ENTRY_SIGNAL' | 'EXIT_SIGNAL' | 'NEUTRAL';
+  };
+  adaptive_rsi?: {
+    value: number;
+    oversold_threshold: number;
+    overbought_threshold: number;
+    in_optimal_range: boolean;
+  };
 }
 
 // Portfolio & Watchlist Types

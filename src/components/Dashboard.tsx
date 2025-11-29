@@ -4,10 +4,43 @@ import React from 'react';
 import { AnalysisResult } from '@/lib/types';
 import { CriteriaList } from './CriteriaList';
 import { TradingViewChart } from './TradingViewChart';
+import { RegimeBadge } from './RegimeBadge';
+import { MultiTimeframeBadge } from './MultiTimeframeBadge';
 
 export function Dashboard({ data }: { data: AnalysisResult }) {
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* Market Context Banners */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                {/* Market Regime Banner */}
+                {data.market_regime && (
+                    <RegimeBadge
+                        regime={data.market_regime.regime}
+                        confidence={data.market_regime.confidence}
+                        details={data.market_regime.details}
+                        thresholds={data.regime_thresholds}
+                        regimeAdjusted={data.regime_adjusted}
+                        originalScore={data.original_score}
+                        currentScore={data.success_probability}
+                    />
+                )}
+                
+                {/* Multi-Timeframe Analysis Banner */}
+                {data.multi_timeframe && (
+                    <MultiTimeframeBadge
+                        dailyScore={data.multi_timeframe.daily_score}
+                        hour4Score={data.multi_timeframe.hour4_score}
+                        combinedScore={data.multi_timeframe.combined_score}
+                        alignment={data.multi_timeframe.alignment}
+                        macd4hStatus={data.multi_timeframe.macd_4h_status}
+                        rsi4h={data.multi_timeframe.rsi_4h}
+                        resistance4h={data.multi_timeframe.resistance_4h}
+                        support4h={data.multi_timeframe.support_4h}
+                        currentPrice={data.current_price}
+                    />
+                )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:items-start">
                 {/* Left Column: 10-Point Analysis */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

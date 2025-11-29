@@ -11,6 +11,29 @@ import YahooFinance from 'yahoo-finance2';
 import { getFundamentals, FundamentalsData } from './data-services/fmp';
 import { analyzeSentiment, SentimentData } from './data-services/sentiment';
 import { withLogging } from './data-services/logger';
+import { 
+    detectMarketRegime, 
+    getRegimeThresholds, 
+    passesRegimeThreshold,
+    MarketRegime,
+    RegimeAnalysis,
+    RegimeThresholds
+} from './market-regime';
+import {
+    getMultiTimeframeAlignment,
+    has4HConfirmation,
+    MultiTimeframeAnalysis
+} from './multi-timeframe';
+import {
+    calculateVolumeProfile,
+    VolumeProfileMetrics
+} from './volume-profile';
+import {
+    analyzeDivergences,
+    analyzeAdaptiveRSI,
+    DivergenceAnalysis,
+    AdaptiveRSIAnalysis
+} from './momentum';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -412,12 +435,16 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     const volumes = validQuotes.map((q: any) => q.volume as number).reverse();
 
     // Fetch additional market data and premium data services in parallel
-    const [marketData, vixLevel, fundamentals, sentiment] = await Promise.all([
+    const [marketData, vixLevel, fundamentals, sentiment, regimeAnalysis] = await Promise.all([
         fetchMarketData(),
         fetchVIXLevel(),
         getFundamentals(ticker),
-        analyzeSentiment(ticker)
+        analyzeSentiment(ticker),
+        detectMarketRegime()
     ]);
+    
+    // Get regime-adjusted thresholds
+    const regimeThresholds = getRegimeThresholds(regimeAnalysis.regime);
     
     // Calculate all technical indicators
     const sma20 = calculateSMA(prices, 20);
@@ -646,19 +673,28 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     }
     
     // ============================================
-    // CRITERION 8: Volume (The "Lie Detector")
+    // CRITERION 8: Volume (The "Lie Detector") - UPGRADED with Volume Profile
     // ============================================
-    const volumeConfirms = accDays > distDays && volumeSmaRising;
-    let volumeScore = 5;
+    const volumeProfile = calculateVolumeProfile(opens, highs, lows, prices, volumes);
+    const volumeConfirms = volumeProfile.interpretation === 'ACCUMULATION' || 
+                          volumeProfile.interpretation === 'STRONG_ACCUMULATION';
     
-    if (volumeConfirms && rvol > 1.5) {
-        volumeScore = 10;
-    } else if (volumeConfirms) {
-        volumeScore = 8;
-    } else if (accDays > distDays) {
-        volumeScore = 6;
-    } else if (distDays > accDays) {
-        volumeScore = 3;
+    // Use volume profile score directly (already 0-10 scale)
+    let volumeScore = volumeProfile.overallScore;
+    
+    // Legacy fallback checks (for compatibility)
+    if (volumeScore < 5 && accDays > distDays && volumeSmaRising) {
+        volumeScore = Math.max(volumeScore, 6); // Minimum 6 if old logic passes
+    }
+    
+    // Bonus for strong accumulation patterns
+    if (volumeProfile.smartMoneySignal === 'BUYING' && volumeProfile.details.institutionalActivity) {
+        volumeScore = Math.min(10, volumeScore + 1);
+    }
+    
+    // Penalty for distribution signals
+    if (volumeProfile.smartMoneySignal === 'SELLING') {
+        volumeScore = Math.max(2, volumeScore - 2);
     }
     
     // ============================================
@@ -680,26 +716,36 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     }
     
     // ============================================
-    // CRITERION 10: RSI (Relative Strength Index)
+    // CRITERION 10: RSI (Relative Strength Index) - UPGRADED with Adaptive Thresholds & Divergence
     // ============================================
-    const inBullRange = rsi >= 40 && rsi <= 90;
-    const dipBuySignal = rsi >= 40 && rsi <= 50;
-    const positiveMomentum = rsi > 50;
-    const overextended = rsi > 75;
-    const optimalRange = rsi >= 45 && rsi <= 70;
+    // Phase 4: Adaptive RSI thresholds based on volatility
+    const adaptiveRSI = analyzeAdaptiveRSI(rsi, atr, currentPrice);
     
-    let rsiScore = 5;
-    if (optimalRange && positiveMomentum) {
-        rsiScore = 10;
-    } else if (dipBuySignal && inBullRange) {
-        rsiScore = 9; // Dip buy opportunity
-    } else if (inBullRange && !overextended) {
-        rsiScore = 7;
-    } else if (overextended) {
-        rsiScore = 4; // Caution - overextended
-    } else if (rsi < 40) {
-        rsiScore = 3; // Weak momentum
+    // Phase 4: Divergence detection for early exit/entry signals
+    const divergenceAnalysis = analyzeDivergences(prices);
+    
+    // Use adaptive RSI score as base
+    let rsiScore = adaptiveRSI.score;
+    
+    // Apply divergence adjustments
+    if (divergenceAnalysis.strongest.type !== 'NONE') {
+        if (divergenceAnalysis.strongest.implication === 'EXIT_SIGNAL' && 
+            divergenceAnalysis.strongest.strength >= 5) {
+            // Bearish divergence - reduce score
+            rsiScore = Math.max(2, rsiScore - 3);
+        } else if (divergenceAnalysis.strongest.implication === 'ENTRY_SIGNAL' && 
+                   divergenceAnalysis.strongest.strength >= 5) {
+            // Bullish divergence - increase score
+            rsiScore = Math.min(10, rsiScore + 2);
+        }
     }
+    
+    // Legacy variables for compatibility
+    const inBullRange = rsi >= adaptiveRSI.thresholds.oversold && rsi <= adaptiveRSI.thresholds.overbought;
+    const dipBuySignal = rsi >= adaptiveRSI.thresholds.optimalBuyLow && rsi <= adaptiveRSI.thresholds.optimalBuyHigh;
+    const positiveMomentum = rsi > 50;
+    const overextended = rsi > adaptiveRSI.thresholds.overbought;
+    const optimalRange = adaptiveRSI.zone === 'OPTIMAL_BUY';
     
     // ============================================
     // BUILD PARAMETERS OBJECT
@@ -793,16 +839,16 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
             rationale: `${trendStatus}: ${higherHighs ? 'HH ✓' : 'HH ✗'} ${higherLows ? 'HL ✓' : 'HL ✗'}${hammerDetected ? ' + Hammer' : ''}`
         },
         "8_volume": {
-            status: volumeConfirms ? 'CONFIRMING' : 'NOT CONFIRMING',
-            volume_trend: volumeSmaRising ? 'Rising' : 'Flat/Declining',
+            status: volumeProfile.interpretation,
+            volume_trend: volumeProfile.obv.trend === 'UP' ? 'Rising' : volumeProfile.obv.trend === 'DOWN' ? 'Declining' : 'Flat',
             current_volume: currentVolume,
             avg_volume: avgVolume30,
             accumulation_days: accDays,
             distribution_days: distDays,
             volume_sma5_rising: volumeSmaRising,
             volume_confirms: volumeConfirms,
-            score: volumeScore,
-            rationale: `Acc: ${accDays} days, Dist: ${distDays} days, Vol SMA5 ${volumeSmaRising ? 'rising' : 'flat'}`
+            score: Math.round(volumeScore * 10) / 10,
+            rationale: `RVOL: ${volumeProfile.rvol.ratio.toFixed(1)}x | OBV: ${volumeProfile.obv.trend} | CMF: ${volumeProfile.cmf.value > 0 ? '+' : ''}${volumeProfile.cmf.value.toFixed(2)} | ${volumeProfile.smartMoneySignal === 'BUYING' ? '🟢 Smart Money Buying' : volumeProfile.smartMoneySignal === 'SELLING' ? '🔴 Smart Money Selling' : '⚪ Neutral'}`
         },
         "9_ma_fibonacci": {
             ma_20: sma20,
@@ -822,18 +868,105 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
         },
         "10_rsi": {
             value: Math.round(rsi),
-            status: overextended ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : optimalRange ? 'OPTIMAL' : 'NEUTRAL',
+            status: adaptiveRSI.zone,
             in_bull_range: inBullRange,
             dip_buy_signal: dipBuySignal,
             positive_momentum: positiveMomentum,
             overextended: overextended,
             optimal_range: optimalRange,
-            score: rsiScore,
-            rationale: `RSI ${Math.round(rsi)} - ${optimalRange ? 'Optimal (45-70)' : overextended ? 'Overextended (>75)' : dipBuySignal ? 'Dip Buy Zone (40-50)' : 'Outside optimal'}`
+            score: Math.round(rsiScore * 10) / 10,
+            rationale: `RSI ${Math.round(rsi)} | Zone: ${adaptiveRSI.zone} | Thresholds: ${adaptiveRSI.thresholds.oversold}-${adaptiveRSI.thresholds.overbought} (${adaptiveRSI.isVolatile ? 'Volatile' : 'Normal'})${divergenceAnalysis.strongest.type !== 'NONE' ? ` | ${divergenceAnalysis.strongest.type.replace('_', ' ')} divergence` : ''}`
         }
     };
 
     const successProbability = calculateSuccessProbability(parameters);
+    
+    // ============================================
+    // PHASE 2: MULTI-TIMEFRAME ANALYSIS
+    // ============================================
+    const mtfAnalysis = await getMultiTimeframeAlignment(
+        ticker,
+        successProbability / 10, // Convert to 0-10 scale
+        trendStatus,
+        regimeAnalysis.regime
+    );
+    const hasMTFConfirm = has4HConfirmation(mtfAnalysis);
+    
+    // ============================================
+    // REGIME-ADJUSTED SCORING & RECOMMENDATIONS
+    // ============================================
+    const originalScore = successProbability;
+    let adjustedProbability = successProbability;
+    let regimeAdjusted = false;
+    let adjustedRecommendation = getRecommendation(successProbability);
+    
+    // Check if score passes regime threshold
+    const regimeCheck = passesRegimeThreshold(
+        successProbability / 10, // Convert to 0-10 scale
+        regimeAnalysis.regime,
+        volumeConfirms, // hasVolumeConfirm
+        hasMTFConfirm // Now using real MTF confirmation
+    );
+    
+    // Apply regime-adjusted logic
+    if (!regimeCheck.passes) {
+        regimeAdjusted = true;
+        
+        // Downgrade recommendation based on regime
+        if (regimeAnalysis.regime === 'CRASH') {
+            adjustedRecommendation = 'AVOID - CRASH REGIME';
+            adjustedProbability = Math.min(adjustedProbability, 30); // Cap at 30%
+        } else if (regimeAnalysis.regime === 'CHOPPY') {
+            if (successProbability < 75) {
+                adjustedRecommendation = 'WAIT - CHOPPY MARKET';
+                adjustedProbability = Math.min(adjustedProbability, 50); // Cap at 50%
+            }
+        }
+    }
+    
+    // Additional regime-specific adjustments
+    if (regimeAnalysis.regime === 'CRASH' && successProbability < 85) {
+        adjustedRecommendation = 'AVOID - NOT TODAY';
+        regimeAdjusted = true;
+    }
+    
+    // Bonus for exceptional setups in BULL regime
+    if (regimeAnalysis.regime === 'BULL' && successProbability >= 75 && volumeConfirms) {
+        adjustedProbability = Math.min(100, adjustedProbability + 5);
+        regimeAdjusted = true;
+    }
+    
+    // Phase 2: Apply multi-timeframe adjustments
+    if (regimeThresholds.requireMultiTimeframe && !hasMTFConfirm) {
+        if (regimeAnalysis.regime === 'CHOPPY') {
+            adjustedRecommendation = 'WAIT - 4H NOT CONFIRMING';
+            adjustedProbability = Math.min(adjustedProbability, 45);
+            regimeAdjusted = true;
+        } else if (regimeAnalysis.regime === 'CRASH') {
+            adjustedRecommendation = 'AVOID - NO MTF ALIGNMENT';
+            adjustedProbability = Math.min(adjustedProbability, 30);
+            regimeAdjusted = true;
+        }
+    }
+    
+    // Bonus for strong MTF alignment
+    if (mtfAnalysis.alignment === 'STRONG_BUY') {
+        adjustedProbability = Math.min(100, adjustedProbability + 8);
+        if (adjustedProbability >= 70 && adjustedRecommendation.includes('WAIT')) {
+            adjustedRecommendation = 'BUY - STRONG MTF ALIGNMENT';
+        }
+        regimeAdjusted = true;
+    } else if (mtfAnalysis.alignment === 'BUY') {
+        adjustedProbability = Math.min(100, adjustedProbability + 4);
+        regimeAdjusted = true;
+    }
+    
+    // Use combined MTF score if beneficial
+    const mtfCombinedPct = mtfAnalysis.combined_score * 10;
+    if (mtfCombinedPct > adjustedProbability && hasMTFConfirm) {
+        adjustedProbability = Math.round((adjustedProbability + mtfCombinedPct) / 2);
+        regimeAdjusted = true;
+    }
 
     // Trading Plan with ATR-based Stop Loss
     const stopLoss = stopLossLevel;
@@ -842,9 +975,12 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     const tp3 = currentPrice + (risk * 4);
     
     const isUptrend = trendStatus === 'UPTREND' && priceAbove200SMA;
+    
+    // Use regime-adjusted R:R minimum
+    const effectiveRRPasses = rrRatio >= regimeThresholds.minRRRatio;
 
     const tradingPlan: TradingPlan = {
-        signal: isUptrend && successProbability >= 60 ? "BUY" : "WAIT",
+        signal: isUptrend && adjustedProbability >= 60 && effectiveRRPasses ? "BUY" : "WAIT",
         entry: {
             method: "Market / Limit near support",
             primary_price: currentPrice,
@@ -889,11 +1025,11 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
         timestamp: new Date().toISOString(),
         current_price: currentPrice,
         timeframe: "Daily",
-        trade_type: isUptrend && successProbability >= 60 ? "SWING_LONG" : "AVOID",
+        trade_type: isUptrend && adjustedProbability >= 60 && effectiveRRPasses ? "SWING_LONG" : "AVOID",
         parameters,
-        success_probability: successProbability,
-        confidence_rating: getConfidenceRating(successProbability),
-        recommendation: getRecommendation(successProbability),
+        success_probability: adjustedProbability,
+        confidence_rating: getConfidenceRating(adjustedProbability),
+        recommendation: regimeAdjusted ? adjustedRecommendation : getRecommendation(adjustedProbability),
         trading_plan: tradingPlan,
         risk_analysis: {
             downside_risk: `Stop loss at $${stopLoss.toFixed(2)}`,
@@ -904,11 +1040,13 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
                 !marketData.goldenCross ? "Market not in Golden Cross" : "",
                 !outperforming ? "Sector underperforming" : "",
                 overextended ? "RSI overextended" : "",
-                !volumeConfirms ? "Volume not confirming" : ""
+                !volumeConfirms ? "Volume not confirming" : "",
+                regimeAnalysis.regime === 'CRASH' ? "⚠️ CRASH regime - high risk" : "",
+                regimeAnalysis.regime === 'CHOPPY' ? "⚠️ CHOPPY market - stricter criteria" : ""
             ].filter(Boolean)
         },
         qualitative_assessment: {
-            setup_quality: successProbability >= 70 ? "EXCELLENT" : successProbability >= 60 ? "GOOD" : successProbability >= 50 ? "FAIR" : "POOR",
+            setup_quality: adjustedProbability >= 70 ? "EXCELLENT" : adjustedProbability >= 60 ? "GOOD" : adjustedProbability >= 50 ? "FAIR" : "POOR",
             setup_description: patternType !== 'NONE' ? `${patternType} with ${trendStatus}` : `${trendStatus} setup`,
             follow_through_probability: volumeConfirms && priceAbove200SMA ? "HIGH" : "MODERATE",
             next_catalyst: hasCatalyst ? "High volume interest" : "Watch for volume breakout",
@@ -923,6 +1061,67 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
             "Data provided by Yahoo Finance",
             "Fundamental data limited without premium API"
         ],
-        chart_data
+        chart_data,
+        
+        // Phase 1: Market Regime Context
+        market_regime: {
+            regime: regimeAnalysis.regime,
+            confidence: regimeAnalysis.confidence,
+            details: {
+                spyAbove50SMA: regimeAnalysis.details.spyAbove50SMA,
+                spyAbove200SMA: regimeAnalysis.details.spyAbove200SMA,
+                vixLevel: regimeAnalysis.details.vixLevel,
+                trendStrength: regimeAnalysis.details.trendStrength,
+                volatilityEnvironment: regimeAnalysis.details.volatilityEnvironment,
+            },
+        },
+        regime_thresholds: {
+            minEntryScore: regimeThresholds.minEntryScore,
+            minRRRatio: regimeThresholds.minRRRatio,
+            requireVolumeConfirm: regimeThresholds.requireVolumeConfirm,
+            requireMultiTimeframe: regimeThresholds.requireMultiTimeframe,
+            allowShorts: regimeThresholds.allowShorts,
+            description: regimeThresholds.description,
+        },
+        regime_adjusted: regimeAdjusted,
+        original_score: regimeAdjusted ? originalScore : undefined,
+        
+        // Phase 2: Multi-Timeframe Analysis
+        multi_timeframe: {
+            daily_score: mtfAnalysis.daily.score,
+            hour4_score: mtfAnalysis.hour4.score,
+            combined_score: mtfAnalysis.combined_score,
+            alignment: mtfAnalysis.alignment,
+            macd_4h_status: mtfAnalysis.hour4.macd.status,
+            rsi_4h: mtfAnalysis.hour4.rsi,
+            resistance_4h: mtfAnalysis.hour4.resistance,
+            support_4h: mtfAnalysis.hour4.support,
+        },
+        
+        // Phase 3: Volume Profile (Enhanced)
+        volume_profile: {
+            rvol: volumeProfile.rvol.ratio,
+            obv_trending: volumeProfile.obv.trend === 'UP',
+            obv_value: volumeProfile.obv.value,
+            cmf_value: volumeProfile.cmf.value,
+            cmf_positive: volumeProfile.cmf.isPositive,
+            interpretation: `${volumeProfile.interpretation} (${volumeProfile.smartMoneySignal === 'BUYING' ? 'Smart Money Buying' : volumeProfile.smartMoneySignal === 'SELLING' ? 'Smart Money Selling' : 'Neutral'})`,
+        },
+        
+        // Phase 4: Divergence Detection
+        divergence: {
+            type: divergenceAnalysis.strongest.type,
+            indicator: divergenceAnalysis.strongest.indicator,
+            strength: divergenceAnalysis.strongest.strength,
+            implication: divergenceAnalysis.strongest.implication,
+        },
+        
+        // Phase 4: Adaptive RSI Thresholds
+        adaptive_rsi: {
+            value: adaptiveRSI.currentRSI,
+            oversold_threshold: adaptiveRSI.thresholds.oversold,
+            overbought_threshold: adaptiveRSI.thresholds.overbought,
+            in_optimal_range: adaptiveRSI.zone === 'OPTIMAL_BUY',
+        },
     };
 }

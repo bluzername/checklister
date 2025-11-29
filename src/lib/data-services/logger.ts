@@ -7,7 +7,7 @@
 export interface ApiLogEntry {
     id: string;
     timestamp: Date;
-    service: 'yahoo' | 'eodhd' | 'claude' | 'cache';
+    service: 'yahoo' | 'eodhd' | 'fmp' | 'claude' | 'cache';
     operation: string;
     ticker: string;
     latency_ms: number;
@@ -36,6 +36,7 @@ const logs: ApiLogEntry[] = [];
 const COST_PER_CALL: Record<string, number> = {
     yahoo: 0,           // Free
     eodhd: 0.0002,      // ~$20/mo for 100k calls
+    fmp: 0.0001,        // ~$10/mo for 100k calls
     claude: 0.00025,    // Haiku pricing
     cache: 0,           // Free (local)
 };
