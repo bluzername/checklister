@@ -1,7 +1,7 @@
 /**
  * API Usage Logger
  * Logs all API calls for monitoring, debugging, and the admin dashboard.
- * Stores last 1000 entries in memory.
+ * Stores last 1000 entries in memory using globalThis for cross-module persistence.
  */
 
 export interface ApiLogEntry {
@@ -28,9 +28,23 @@ export interface ApiStats {
     estimated_cost: number;
 }
 
-// In-memory log storage (last 1000 entries)
+// Use globalThis to persist logs across module reloads and share between
+// server actions and API routes in Next.js
 const MAX_LOG_ENTRIES = 1000;
-const logs: ApiLogEntry[] = [];
+
+// Type declaration for global storage
+declare global {
+    // eslint-disable-next-line no-var
+    var __apiLogs: ApiLogEntry[] | undefined;
+}
+
+// Initialize or get existing logs array from globalThis
+function getLogs(): ApiLogEntry[] {
+    if (!globalThis.__apiLogs) {
+        globalThis.__apiLogs = [];
+    }
+    return globalThis.__apiLogs;
+}
 
 // Cost estimates per call (in USD)
 const COST_PER_CALL: Record<string, number> = {
@@ -58,6 +72,7 @@ export function logApiCall(entry: Omit<ApiLogEntry, 'id' | 'timestamp'>): void {
         ...entry,
     };
 
+    const logs = getLogs();
     logs.unshift(logEntry); // Add to front (newest first)
 
     // Trim to max size
@@ -121,20 +136,21 @@ export async function withLogging<T>(
  * Get recent log entries
  */
 export function getRecentLogs(limit: number = 50): ApiLogEntry[] {
-    return logs.slice(0, limit);
+    return getLogs().slice(0, limit);
 }
 
 /**
  * Get all logs (for admin dashboard)
  */
 export function getAllLogs(): ApiLogEntry[] {
-    return [...logs];
+    return [...getLogs()];
 }
 
 /**
  * Calculate API usage statistics
  */
 export function getApiStats(): ApiStats {
+    const logs = getLogs();
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekStart = new Date(todayStart);
@@ -153,8 +169,8 @@ export function getApiStats(): ApiStats {
         calls_by_service[l.service] = (calls_by_service[l.service] || 0) + 1;
     });
 
-    const calls_today = logs.filter(l => l.timestamp >= todayStart).length;
-    const calls_this_week = logs.filter(l => l.timestamp >= weekStart).length;
+    const calls_today = logs.filter(l => new Date(l.timestamp) >= todayStart).length;
+    const calls_this_week = logs.filter(l => new Date(l.timestamp) >= weekStart).length;
 
     // Calculate estimated cost (only for non-cached, successful calls)
     const billable_calls = logs.filter(l => l.success && !l.cached);
@@ -179,6 +195,14 @@ export function getApiStats(): ApiStats {
  * Clear all logs (for testing)
  */
 export function clearLogs(): void {
+    const logs = getLogs();
     logs.length = 0;
+}
+
+/**
+ * Get raw log count (for debugging)
+ */
+export function getLogCount(): number {
+    return getLogs().length;
 }
 

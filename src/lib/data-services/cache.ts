@@ -1,6 +1,7 @@
 /**
  * Simple In-Memory Cache with TTL
  * Reduces API calls and costs by caching responses.
+ * Uses globalThis for cross-module persistence in Next.js.
  */
 
 interface CacheEntry<T> {
@@ -9,8 +10,19 @@ interface CacheEntry<T> {
     ttl: number; // Time to live in milliseconds
 }
 
-// In-memory cache storage
-const cache = new Map<string, CacheEntry<unknown>>();
+// Type declaration for global storage
+declare global {
+    // eslint-disable-next-line no-var
+    var __apiCache: Map<string, CacheEntry<unknown>> | undefined;
+}
+
+// Initialize or get existing cache from globalThis
+function getCache(): Map<string, CacheEntry<unknown>> {
+    if (!globalThis.__apiCache) {
+        globalThis.__apiCache = new Map();
+    }
+    return globalThis.__apiCache;
+}
 
 // Default TTLs (in milliseconds)
 export const TTL = {
@@ -33,6 +45,7 @@ export function cacheKey(service: string, operation: string, ticker: string): st
  * Returns undefined if not found or expired
  */
 export function getCached<T>(key: string): T | undefined {
+    const cache = getCache();
     const entry = cache.get(key) as CacheEntry<T> | undefined;
     
     if (!entry) {
@@ -53,6 +66,7 @@ export function getCached<T>(key: string): T | undefined {
  * Set an item in cache
  */
 export function setCache<T>(key: string, data: T, ttl: number): void {
+    const cache = getCache();
     cache.set(key, {
         data,
         timestamp: Date.now(),
@@ -71,6 +85,7 @@ export function hasCache(key: string): boolean {
  * Remove an item from cache
  */
 export function invalidateCache(key: string): void {
+    const cache = getCache();
     cache.delete(key);
 }
 
@@ -78,6 +93,7 @@ export function invalidateCache(key: string): void {
  * Clear all cache entries
  */
 export function clearCache(): void {
+    const cache = getCache();
     cache.clear();
 }
 
@@ -89,6 +105,7 @@ export function getCacheStats(): {
     keys: string[];
     memoryEstimate: string;
 } {
+    const cache = getCache();
     const keys = Array.from(cache.keys());
     
     // Rough memory estimate (not exact, but gives an idea)
@@ -139,6 +156,7 @@ export async function getOrFetch<T>(
  * Cleanup expired entries (call periodically if needed)
  */
 export function cleanupExpired(): number {
+    const cache = getCache();
     const now = Date.now();
     let removed = 0;
     
