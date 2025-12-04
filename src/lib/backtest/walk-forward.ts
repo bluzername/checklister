@@ -360,7 +360,7 @@ export function createRollingWalkForward(
 }
 
 // Export
-export { WalkForwardConfig, WalkForwardResult, WalkForwardPeriod };
+export type { WalkForwardConfig, WalkForwardResult, WalkForwardPeriod };
 
 
 

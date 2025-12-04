@@ -164,6 +164,15 @@ export function PositionRow({ position, onDelete, onSelect, onUpdate }: Position
                         <div className="text-gray-400">--</div>
                     )}
                 </td>
+                <td className="px-4 py-3 text-right">
+                    {position.current_price ? (
+                        <div className={`font-medium ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {isProfit ? '+' : '-'}${Math.abs(profitLoss).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                    ) : (
+                        <div className="text-gray-400">--</div>
+                    )}
+                </td>
                 {/* Stop Loss */}
                 <td className="px-3 py-3 text-center">
                     <PriceButton

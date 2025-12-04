@@ -9,8 +9,8 @@ export {
   batchLabelTrades,
   calculateLabelStats,
   analyzeOptimalExit,
-  TradeLabelResult,
 } from './labeling';
+export type { TradeLabelResult } from './labeling';
 
 // Logistic Regression
 export {
@@ -21,9 +21,8 @@ export {
   serializeCoefficients,
   deserializeCoefficients,
   DEFAULT_COEFFICIENTS,
-  ModelCoefficients,
-  TrainingExample,
 } from './logistic';
+export type { ModelCoefficients, TrainingExample } from './logistic';
 
 // Calibration
 export {
@@ -36,10 +35,8 @@ export {
   evaluateCalibration,
   temperatureScale,
   findOptimalTemperature,
-  PlattParameters,
-  IsotonicModel,
-  EnsembleCalibrator,
 } from './calibration';
+export type { PlattParameters, IsotonicModel, EnsembleCalibrator } from './calibration';
 
 
 

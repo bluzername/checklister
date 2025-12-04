@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { Loader2, RefreshCw, Briefcase } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Loader2, RefreshCw, Briefcase, ChevronUp, ChevronDown } from 'lucide-react';
 import { PortfolioPosition } from '@/lib/types';
 import { analyzePortfolio } from '@/app/portfolio-actions';
 import { AddPositionForm } from './AddPositionForm';
 import { PositionRow } from './PositionRow';
+
+type SortField = 'ticker' | 'entry' | 'current' | 'pl_percent' | 'pl_dollar' | 'action';
+type SortDirection = 'asc' | 'desc';
 
 interface PortfolioListProps {
     onSelectPosition: (position: PortfolioPosition) => void;
@@ -16,6 +19,8 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [sortField, setSortField] = useState<SortField>('ticker');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
     const loadPortfolio = useCallback(async (showRefresh = false) => {
         if (showRefresh) setRefreshing(true);
@@ -40,6 +45,57 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
 
     const handleRefresh = () => {
         loadPortfolio(true);
+    };
+
+    const handleSort = (field: SortField) => {
+        if (sortField === field) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('asc');
+        }
+    };
+
+    const actionPriority: Record<string, number> = {
+        'STOP_LOSS': 1,
+        'CUT_LOSS': 2,
+        'TAKE_PROFIT': 3,
+        'PARTIAL_PROFIT': 4,
+        'HOLD': 5,
+    };
+
+    const sortedPositions = useMemo(() => {
+        return [...positions].sort((a, b) => {
+            let comparison = 0;
+            switch (sortField) {
+                case 'ticker':
+                    comparison = a.ticker.localeCompare(b.ticker);
+                    break;
+                case 'entry':
+                    comparison = a.buy_price - b.buy_price;
+                    break;
+                case 'current':
+                    comparison = (a.current_price || 0) - (b.current_price || 0);
+                    break;
+                case 'pl_percent':
+                    comparison = (a.profit_loss_percent || 0) - (b.profit_loss_percent || 0);
+                    break;
+                case 'pl_dollar':
+                    comparison = (a.profit_loss || 0) - (b.profit_loss || 0);
+                    break;
+                case 'action':
+                    comparison = (actionPriority[a.action || 'HOLD'] || 99) - (actionPriority[b.action || 'HOLD'] || 99);
+                    break;
+            }
+            return sortDirection === 'asc' ? comparison : -comparison;
+        });
+    }, [positions, sortField, sortDirection]);
+
+    const SortIcon = ({ field }: { field: SortField }) => {
+        if (sortField !== field) return null;
+        return sortDirection === 'asc'
+            ? <ChevronUp className="w-3 h-3 inline ml-1" />
+            : <ChevronDown className="w-3 h-3 inline ml-1" />;
     };
 
     if (loading) {
@@ -80,20 +136,38 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                 </div>
             ) : (
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
-                    <table className="w-full min-w-[900px]">
+                    <table className="w-full min-w-[1000px]">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
-                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                    Ticker
+                                <th
+                                    onClick={() => handleSort('ticker')}
+                                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    Ticker<SortIcon field="ticker" />
                                 </th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                    Entry
+                                <th
+                                    onClick={() => handleSort('entry')}
+                                    className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    Entry<SortIcon field="entry" />
                                 </th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                    Current
+                                <th
+                                    onClick={() => handleSort('current')}
+                                    className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    Current<SortIcon field="current" />
                                 </th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                    P/L
+                                <th
+                                    onClick={() => handleSort('pl_percent')}
+                                    className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    P/L %<SortIcon field="pl_percent" />
+                                </th>
+                                <th
+                                    onClick={() => handleSort('pl_dollar')}
+                                    className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    $ P/L<SortIcon field="pl_dollar" />
                                 </th>
                                 <th className="px-3 py-3 text-center text-xs font-semibold text-red-500 uppercase tracking-wider">
                                     Stop
@@ -107,14 +181,17 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                                 <th className="px-3 py-3 text-center text-xs font-semibold text-blue-600 uppercase tracking-wider">
                                     PT3
                                 </th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                    Action
+                                <th
+                                    onClick={() => handleSort('action')}
+                                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                >
+                                    Action<SortIcon field="action" />
                                 </th>
                                 <th className="px-4 py-3 w-12"></th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {positions.map((position) => (
+                            {sortedPositions.map((position) => (
                                 <PositionRow
                                     key={position.id}
                                     position={position}

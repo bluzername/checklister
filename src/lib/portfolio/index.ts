@@ -6,17 +6,19 @@
 export {
   // Classes
   PortfolioRiskManager,
-  
+
   // Risk budget presets
   DEFAULT_RISK_BUDGET,
   AGGRESSIVE_RISK_BUDGET,
   CONSERVATIVE_RISK_BUDGET,
-  
+
   // Helper functions
   calculateKellySize,
   calculateRiskAdjustedSize,
-  
-  // Types
+} from './risk-manager';
+
+// Types
+export type {
   RiskBudget,
   CurrentExposure,
   PositionSizeResult,
