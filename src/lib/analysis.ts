@@ -34,8 +34,31 @@ import {
     DivergenceAnalysis,
     AdaptiveRSIAnalysis
 } from './momentum';
+import {
+    predictProbability,
+    DEFAULT_COEFFICIENTS,
+    ModelCoefficients
+} from './model';
+import { extractFeatureVector, FeatureVector } from './backtest/types';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+// Model configuration - can be swapped out for trained model
+let activeModelCoefficients: ModelCoefficients = DEFAULT_COEFFICIENTS;
+
+/**
+ * Set the active model coefficients (for using trained models)
+ */
+export function setModelCoefficients(coefficients: ModelCoefficients): void {
+    activeModelCoefficients = coefficients;
+}
+
+/**
+ * Get current model coefficients
+ */
+export function getModelCoefficients(): ModelCoefficients {
+    return activeModelCoefficients;
+}
 
 // Sector ETF mapping
 const SECTOR_ETFS: Record<string, string> = {
@@ -270,23 +293,34 @@ function isVolumeSmaRising(volumes: number[]): boolean {
     return sma5_current > sma5_prev && sma5_prev > sma5_prev2;
 }
 
-// Fetch market data (SPY/SPX)
-async function fetchMarketData(): Promise<{
+// Fetch market data (SPY/SPX) - supports point-in-time for backtesting
+async function fetchMarketData(asOfDate?: Date): Promise<{
     price: number;
     sma50: number;
     sma200: number;
     goldenCross: boolean;
 }> {
     try {
+        const endDate = asOfDate || new Date();
+        const startDate = new Date(endDate.getTime() - 250 * 24 * 60 * 60 * 1000);
+        
         const historical = await yahooFinance.chart('SPY', {
-            period1: new Date(Date.now() - 250 * 24 * 60 * 60 * 1000),
-            period2: new Date(),
+            period1: startDate,
+            period2: endDate,
             interval: '1d'
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any;
         
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const quotes = historical.quotes.filter((q: any) => q.close != null);
+        let quotes = historical.quotes.filter((q: any) => q.close != null);
+        
+        // Filter to only include data up to asOfDate
+        if (asOfDate) {
+            const asOfTime = asOfDate.getTime();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            quotes = quotes.filter((q: any) => new Date(q.date).getTime() <= asOfTime);
+        }
+        
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prices = quotes.map((q: any) => q.close as number).reverse();
         
@@ -301,9 +335,33 @@ async function fetchMarketData(): Promise<{
     }
 }
 
-// Fetch VIX data
-async function fetchVIXLevel(): Promise<number> {
+// Fetch VIX data - supports point-in-time for backtesting
+async function fetchVIXLevel(asOfDate?: Date): Promise<number> {
     try {
+        if (asOfDate) {
+            // For backtesting, get historical VIX data
+            const startDate = new Date(asOfDate.getTime() - 5 * 24 * 60 * 60 * 1000);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const historical = await yahooFinance.chart('^VIX', {
+                period1: startDate,
+                period2: asOfDate,
+                interval: '1d'
+            }) as any;
+            
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const quotes = historical.quotes.filter((q: any) => q.close != null);
+            if (quotes.length > 0) {
+                // Get the last quote on or before asOfDate
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const validQuotes = quotes.filter((q: any) => new Date(q.date).getTime() <= asOfDate.getTime());
+                if (validQuotes.length > 0) {
+                    return validQuotes[validQuotes.length - 1].close;
+                }
+            }
+            return 20;
+        }
+        
+        // For live analysis, use current quote
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const quote = await yahooFinance.quote('^VIX') as any;
         return quote?.regularMarketPrice || 20;
@@ -312,14 +370,14 @@ async function fetchVIXLevel(): Promise<number> {
     }
 }
 
-// Fetch sector ETF data and calculate RS
-async function fetchSectorData(sectorETF: string): Promise<{
+// Fetch sector ETF data and calculate RS - supports point-in-time for backtesting
+async function fetchSectorData(sectorETF: string, asOfDate?: Date): Promise<{
     rs20d: number;
     rs60d: number;
 }> {
     try {
-        const endDate = new Date();
-        const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const endDate = asOfDate || new Date();
+        const startDate = new Date(endDate.getTime() - 90 * 24 * 60 * 60 * 1000);
         
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const [sectorHist, spyHist] = await Promise.all([
@@ -328,10 +386,27 @@ async function fetchSectorData(sectorETF: string): Promise<{
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ]) as any[];
         
+        // Filter to only include data up to asOfDate
+        const asOfTime = asOfDate ? asOfDate.getTime() : Date.now();
+        
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sectorPrices = sectorHist.quotes.filter((q: any) => q.close != null).map((q: any) => q.close).reverse();
+        const sectorPrices = sectorHist.quotes
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((q: any) => q.close != null && new Date(q.date).getTime() <= asOfTime)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((q: any) => q.close)
+            .reverse();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const spyPrices = spyHist.quotes.filter((q: any) => q.close != null).map((q: any) => q.close).reverse();
+        const spyPrices = spyHist.quotes
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((q: any) => q.close != null && new Date(q.date).getTime() <= asOfTime)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((q: any) => q.close)
+            .reverse();
+        
+        if (sectorPrices.length < 20 || spyPrices.length < 20) {
+            return { rs20d: 1, rs60d: 1 };
+        }
         
         // 20-day RS
         const sector20dChange = (sectorPrices[0] - sectorPrices[19]) / sectorPrices[19] * 100;
@@ -353,7 +428,18 @@ async function fetchSectorData(sectorETF: string): Promise<{
 // SCORING FUNCTIONS
 // ============================================
 
-export function calculateSuccessProbability(parameters: AnalysisParameters): number {
+/**
+ * Calculate success probability using ML model or fallback to heuristic
+ * 
+ * When a trained model is available, it uses the logistic regression model
+ * with calibrated probabilities. Otherwise, falls back to simple score sum.
+ */
+export function calculateSuccessProbability(
+    parameters: AnalysisParameters,
+    result?: Partial<AnalysisResult>,
+    useModel: boolean = true
+): number {
+    // Fallback heuristic: simple weighted sum of scores
     const scores = [
         parameters["1_market_condition"].score,
         parameters["2_sector_condition"].score,
@@ -368,9 +454,48 @@ export function calculateSuccessProbability(parameters: AnalysisParameters): num
     ];
 
     const totalScore = scores.reduce((a, b) => a + b, 0);
-    const successRate = (totalScore / 100) * 100;
+    const heuristicProbability = totalScore;
 
-    return Math.round(successRate * 10) / 10;
+    // If model usage is disabled or no result to extract features from, use heuristic
+    if (!useModel || !result) {
+        return Math.round(heuristicProbability * 10) / 10;
+    }
+
+    // Try to use ML model if trained coefficients are available
+    try {
+        if (activeModelCoefficients.trainingSamples > 0) {
+            // Build a minimal AnalysisResult for feature extraction
+            const fullResult: AnalysisResult = {
+                ticker: result.ticker || 'UNKNOWN',
+                timestamp: result.timestamp || new Date().toISOString(),
+                current_price: result.current_price || 0,
+                timeframe: result.timeframe || 'Daily',
+                trade_type: result.trade_type || 'HOLD',
+                parameters,
+                success_probability: heuristicProbability,
+                confidence_rating: 'MODERATE',
+                recommendation: 'HOLD',
+                trading_plan: result.trading_plan || {} as TradingPlan,
+                risk_analysis: result.risk_analysis || {} as AnalysisResult['risk_analysis'],
+                qualitative_assessment: result.qualitative_assessment || {} as AnalysisResult['qualitative_assessment'],
+                disclaimers: [],
+                chart_data: [],
+                market_regime: result.market_regime,
+                multi_timeframe: result.multi_timeframe,
+                volume_profile: result.volume_profile,
+                divergence: result.divergence,
+                adaptive_rsi: result.adaptive_rsi,
+            };
+
+            const features = extractFeatureVector(fullResult);
+            const modelProbability = predictProbability(features, activeModelCoefficients);
+            return Math.round(modelProbability * 10) / 10;
+        }
+    } catch (error) {
+        console.warn('Model prediction failed, using heuristic:', error);
+    }
+
+    return Math.round(heuristicProbability * 10) / 10;
 }
 
 export function getConfidenceRating(probability: number): string {
@@ -390,18 +515,17 @@ export function getRecommendation(probability: number): string {
 // MAIN ANALYSIS FUNCTION
 // ============================================
 
-export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
-    // Fetch main ticker data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const quote = await yahooFinance.quote(ticker) as any;
+/**
+ * Analyze a ticker for swing trading opportunities
+ * @param ticker - Stock ticker symbol
+ * @param asOfDate - Optional: For backtesting, analyze as if on this date (uses only data up to this date)
+ */
+export async function analyzeTicker(ticker: string, asOfDate?: Date): Promise<AnalysisResult> {
+    const isBacktest = !!asOfDate;
     
-    if (!quote || !quote.regularMarketPrice) {
-        throw new Error("Invalid Ticker or No Data Available");
-    }
-
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 250);
+    // For backtesting, we need historical data; for live, we can use quote
+    const endDate = asOfDate || new Date();
+    const startDate = new Date(endDate.getTime() - 250 * 24 * 60 * 60 * 1000);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const historical = await yahooFinance.chart(ticker, {
@@ -413,14 +537,55 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     if (!historical || !historical.quotes || historical.quotes.length === 0) {
         throw new Error("Invalid Ticker or No Historical Data");
     }
+    
+    // Filter historical data to only include data up to asOfDate
+    const asOfTime = asOfDate ? asOfDate.getTime() : Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filteredQuotes = historical.quotes.filter((q: any) => 
+        q.close != null && new Date(q.date).getTime() <= asOfTime
+    );
+    
+    if (filteredQuotes.length === 0) {
+        throw new Error("No data available for the specified date");
+    }
 
-    const currentPrice = quote.regularMarketPrice;
-    const sector = quote.sector || 'Technology';
-    const marketCap = quote.marketCap ? quote.marketCap / 1_000_000_000 : 0;
+    // For backtest: use last available close price; for live: try to get current quote
+    let currentPrice: number;
+    let sector: string;
+    let marketCap: number;
+    
+    if (isBacktest) {
+        // Use the close price on/before asOfDate
+        currentPrice = filteredQuotes[filteredQuotes.length - 1].close;
+        // For backtesting, we need to get sector info from historical data or use a default
+        // Since Yahoo quote might not have historical sector data, we fetch current and assume it's stable
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const quote = await yahooFinance.quote(ticker) as any;
+            sector = quote?.sector || 'Technology';
+            marketCap = quote?.marketCap ? quote.marketCap / 1_000_000_000 : 0;
+        } catch {
+            sector = 'Technology';
+            marketCap = 0;
+        }
+    } else {
+        // Live analysis - fetch current quote
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const quote = await yahooFinance.quote(ticker) as any;
+        
+        if (!quote || !quote.regularMarketPrice) {
+            throw new Error("Invalid Ticker or No Data Available");
+        }
+        
+        currentPrice = quote.regularMarketPrice;
+        sector = quote.sector || 'Technology';
+        marketCap = quote.marketCap ? quote.marketCap / 1_000_000_000 : 0;
+    }
 
     // Process historical data (most recent first)
+    // Use filtered quotes for point-in-time analysis
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const validQuotes = historical.quotes.filter((q: any) => q.close != null && q.open != null);
+    const validQuotes = filteredQuotes.filter((q: any) => q.close != null && q.open != null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dates = validQuotes.map((q: any) => new Date(q.date).toISOString().split('T')[0]).reverse();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -435,12 +600,23 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     const volumes = validQuotes.map((q: any) => q.volume as number).reverse();
 
     // Fetch additional market data and premium data services in parallel
+    // Pass asOfDate for point-in-time analysis
     const [marketData, vixLevel, fundamentals, sentiment, regimeAnalysis] = await Promise.all([
-        fetchMarketData(),
-        fetchVIXLevel(),
+        fetchMarketData(asOfDate),
+        fetchVIXLevel(asOfDate),
         getFundamentals(ticker),
-        analyzeSentiment(ticker),
-        detectMarketRegime()
+        // For backtesting, skip sentiment analysis (Claude can't see historical news)
+        isBacktest ? Promise.resolve({
+            sentiment_score: 0,
+            sentiment_label: 'NEUTRAL' as const,
+            catalyst_detected: false,
+            catalyst_keywords: [],
+            catalyst_type: null,
+            summary: 'Historical analysis - sentiment not available',
+            confidence: 0,
+            data_available: false,
+        }) : analyzeSentiment(ticker),
+        detectMarketRegime(asOfDate)
     ]);
     
     // Get regime-adjusted thresholds
@@ -483,7 +659,7 @@ export async function analyzeTicker(ticker: string): Promise<AnalysisResult> {
     
     // Sector data
     const sectorETF = SECTOR_ETFS[sector] || 'SPY';
-    const sectorData = await fetchSectorData(sectorETF);
+    const sectorData = await fetchSectorData(sectorETF, asOfDate);
     
     // ============================================
     // CRITERION 1: Market Condition (The "Tide")

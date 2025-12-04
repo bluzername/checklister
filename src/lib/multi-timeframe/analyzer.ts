@@ -430,3 +430,6 @@ export function has4HConfirmation(mtf: MultiTimeframeAnalysis): boolean {
  */
 export { analyze4Hour };
 
+
+
+

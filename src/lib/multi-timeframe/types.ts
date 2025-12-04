@@ -75,3 +75,6 @@ export interface IntradayDataResponse {
   dataSource: 'yahoo_1h' | 'estimated' | 'fallback';
 }
 
+
+
+

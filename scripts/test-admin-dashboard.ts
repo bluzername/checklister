@@ -17,9 +17,12 @@ config({ path: '.env.local' });
 import { 
     logApiCall, 
     getApiStats, 
-    getRecentLogs, 
+    getApiStatsFromDb,
+    getRecentLogs,
+    getRecentLogsFromDb,
     clearLogs,
     getLogCount,
+    isSupabaseLoggingEnabled,
     ApiLogEntry 
 } from '../src/lib/data-services/logger';
 import { 
@@ -260,16 +263,51 @@ async function testGlobalThisPersistence() {
 }
 
 // ============================================
-// TEST 6: Simulated Admin Dashboard Flow
+// TEST 6: Supabase Persistence
+// ============================================
+async function testSupabasePersistence() {
+    console.log('\n' + '='.repeat(60));
+    console.log('🗄️  TEST 6: Supabase Persistence');
+    console.log('='.repeat(60));
+    
+    const enabled = isSupabaseLoggingEnabled();
+    console.log(`\n  Supabase logging enabled: ${enabled ? '✅ Yes' : '❌ No'}`);
+    
+    if (enabled) {
+        console.log('  Testing Supabase functions...');
+        
+        // Wait a moment for async writes to complete
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Test reading from DB
+        const dbStats = await getApiStatsFromDb();
+        const dbLogs = await getRecentLogsFromDb(10);
+        
+        console.log(`\n--- Stats from Supabase ---`);
+        console.log(`  Total Calls (DB): ${dbStats.total_calls}`);
+        console.log(`  Recent Logs (DB): ${dbLogs.length}`);
+        
+        assert(typeof dbStats.total_calls === 'number', 'DB stats should have total_calls');
+        assert(Array.isArray(dbLogs), 'DB logs should be an array');
+        
+        passedTests += 2;
+    } else {
+        console.log('  ⚠️  Supabase not configured - skipping DB tests');
+        console.log('  To enable: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY');
+    }
+}
+
+// ============================================
+// TEST 7: Simulated Admin Dashboard Flow
 // ============================================
 async function testAdminDashboardFlow() {
     console.log('\n' + '='.repeat(60));
-    console.log('📈 TEST 6: Simulated Admin Dashboard Flow');
+    console.log('📈 TEST 7: Simulated Admin Dashboard Flow');
     console.log('='.repeat(60));
     
     // This simulates what the /api/admin/stats endpoint does
-    const stats = getApiStats();
-    const logs = getRecentLogs(50);
+    const stats = await getApiStatsFromDb();
+    const logs = await getRecentLogsFromDb(50);
     const cacheStats = getCacheStats();
     
     // Verify we can construct the response
@@ -318,6 +356,7 @@ async function main() {
     await testRecentLogs();
     await testCacheFunctionality();
     await testGlobalThisPersistence();
+    await testSupabasePersistence();
     await testAdminDashboardFlow();
     
     // Summary
@@ -338,4 +377,7 @@ async function main() {
 }
 
 main().catch(console.error);
+
+
+
 

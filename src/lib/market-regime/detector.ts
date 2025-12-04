@@ -133,20 +133,26 @@ function calculateTrendStrength(
 
 /**
  * Fetch SPY market data with caching
+ * @param asOfDate - Optional: For backtesting, use data up to this date
  */
-async function fetchSPYData(): Promise<SPYData> {
+async function fetchSPYData(asOfDate?: Date): Promise<SPYData> {
   const startTime = Date.now();
   
   try {
+    const endDate = asOfDate || new Date();
     const historical = await yahooFinance.chart('SPY', {
-      period1: new Date(Date.now() - 250 * 24 * 60 * 60 * 1000),
-      period2: new Date(),
+      period1: new Date(endDate.getTime() - 250 * 24 * 60 * 60 * 1000),
+      period2: endDate,
       interval: '1d'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as any;
     
+    // Filter to only include data up to asOfDate
+    const asOfTime = asOfDate ? asOfDate.getTime() : Date.now();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const quotes = historical.quotes.filter((q: any) => q.close != null);
+    const quotes = historical.quotes.filter((q: any) => 
+      q.close != null && new Date(q.date).getTime() <= asOfTime
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prices = quotes.map((q: any) => q.close as number).reverse();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,7 +187,7 @@ async function fetchSPYData(): Promise<SPYData> {
       recentHighs: highs.slice(0, 20),
       recentLows: lows.slice(0, 20),
       recentCloses: prices.slice(0, 20),
-      timestamp: new Date().toISOString(),
+      timestamp: (asOfDate || new Date()).toISOString(),
     };
   } catch (error) {
     const latency = Date.now() - startTime;
@@ -206,21 +212,47 @@ async function fetchSPYData(): Promise<SPYData> {
       recentHighs: [],
       recentLows: [],
       recentCloses: [],
-      timestamp: new Date().toISOString(),
+      timestamp: (asOfDate || new Date()).toISOString(),
     };
   }
 }
 
 /**
  * Fetch VIX data with caching
+ * @param asOfDate - Optional: For backtesting, use data up to this date
  */
-async function fetchVIXData(): Promise<VIXData> {
+async function fetchVIXData(asOfDate?: Date): Promise<VIXData> {
   const startTime = Date.now();
   
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const quote = await yahooFinance.quote('^VIX') as any;
-    const level = quote?.regularMarketPrice || 20;
+    let level: number;
+    
+    if (asOfDate) {
+      // For backtesting, get historical VIX data
+      const startDate = new Date(asOfDate.getTime() - 5 * 24 * 60 * 60 * 1000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const historical = await yahooFinance.chart('^VIX', {
+        period1: startDate,
+        period2: asOfDate,
+        interval: '1d'
+      }) as any;
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const quotes = historical.quotes.filter((q: any) => 
+        q.close != null && new Date(q.date).getTime() <= asOfDate.getTime()
+      );
+      
+      if (quotes.length > 0) {
+        level = quotes[quotes.length - 1].close;
+      } else {
+        level = 20;
+      }
+    } else {
+      // For live analysis, use current quote
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const quote = await yahooFinance.quote('^VIX') as any;
+      level = quote?.regularMarketPrice || 20;
+    }
 
     const latency = Date.now() - startTime;
     logApiCall({
@@ -240,7 +272,7 @@ async function fetchVIXData(): Promise<VIXData> {
       isSafe: level < 20,
       isElevated: level >= 20 && level < 25,
       isExtreme: level >= 25,
-      timestamp: new Date().toISOString(),
+      timestamp: (asOfDate || new Date()).toISOString(),
     };
   } catch (error) {
     const latency = Date.now() - startTime;
@@ -261,7 +293,7 @@ async function fetchVIXData(): Promise<VIXData> {
       isSafe: false,
       isElevated: true,
       isExtreme: false,
-      timestamp: new Date().toISOString(),
+      timestamp: (asOfDate || new Date()).toISOString(),
     };
   }
 }
@@ -344,19 +376,31 @@ function calculateConfidence(spy: SPYData, vix: VIXData, regime: MarketRegime): 
 
 /**
  * Main function: Detect current market regime
+ * @param asOfDate - Optional: For backtesting, analyze as of this date
  */
-export async function detectMarketRegime(): Promise<RegimeAnalysis> {
-  // Fetch data with caching
-  const spyKey = cacheKey('regime', 'spy_data', 'SPY');
-  const vixKey = cacheKey('regime', 'vix_data', 'VIX');
+export async function detectMarketRegime(asOfDate?: Date): Promise<RegimeAnalysis> {
+  let spy: SPYData;
+  let vix: VIXData;
+  
+  if (asOfDate) {
+    // For backtesting, fetch data directly without caching
+    [spy, vix] = await Promise.all([
+      fetchSPYData(asOfDate),
+      fetchVIXData(asOfDate),
+    ]);
+  } else {
+    // For live analysis, use caching
+    const spyKey = cacheKey('regime', 'spy_data', 'SPY');
+    const vixKey = cacheKey('regime', 'vix_data', 'VIX');
 
-  const [spyResult, vixResult] = await Promise.all([
-    getOrFetch(spyKey, TTL.MARKET_DATA, fetchSPYData),
-    getOrFetch(vixKey, TTL.MARKET_DATA, fetchVIXData),
-  ]);
+    const [spyResult, vixResult] = await Promise.all([
+      getOrFetch(spyKey, TTL.MARKET_DATA, () => fetchSPYData()),
+      getOrFetch(vixKey, TTL.MARKET_DATA, () => fetchVIXData()),
+    ]);
 
-  const spy = spyResult.data;
-  const vix = vixResult.data;
+    spy = spyResult.data;
+    vix = vixResult.data;
+  }
 
   // Determine regime
   const regime = determineRegime(spy, vix);

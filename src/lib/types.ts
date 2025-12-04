@@ -173,6 +173,17 @@ export interface TradingPlan {
   total_tp_average: number;
   profit_if_hits_average_tp: number;
   profit_percentage: number;
+  
+  // Position sizing (optional - requires portfolio context)
+  position_sizing?: {
+    recommended_shares: number;
+    position_risk_dollars: number;
+    portfolio_risk_percent: number;
+    position_value: number;
+    max_position_value?: number;
+    sizing_method: 'FIXED_RISK' | 'KELLY' | 'REGIME_ADJUSTED';
+    warnings?: string[];
+  };
 }
 
 export interface RiskAnalysis {

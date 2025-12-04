@@ -215,3 +215,6 @@ export function isRSIBuyable(rsi: number, atr: number, currentPrice: number): bo
   return zone === 'OPTIMAL_BUY' || zone === 'NEUTRAL';
 }
 
+
+
+

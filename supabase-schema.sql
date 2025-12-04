@@ -56,3 +56,38 @@ CREATE POLICY "Users can delete own watchlist" ON watchlists
 CREATE INDEX idx_portfolios_user_id ON portfolios(user_id);
 CREATE INDEX idx_watchlists_user_id ON watchlists(user_id);
 
+-- API Logs table for admin dashboard tracking
+-- This table stores API call logs for monitoring and cost tracking
+CREATE TABLE api_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  service VARCHAR(20) NOT NULL, -- 'yahoo', 'fmp', 'eodhd', 'claude', 'cache'
+  operation VARCHAR(50) NOT NULL,
+  ticker VARCHAR(20) NOT NULL,
+  latency_ms INTEGER NOT NULL,
+  success BOOLEAN NOT NULL DEFAULT true,
+  error TEXT,
+  cached BOOLEAN NOT NULL DEFAULT false,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL -- optional, for tracking per-user usage
+);
+
+-- Enable RLS but allow inserts from authenticated users
+ALTER TABLE api_logs ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Anyone can insert logs (for server-side logging)
+CREATE POLICY "Service role can manage api_logs" ON api_logs
+  FOR ALL USING (true) WITH CHECK (true);
+
+-- Create indexes for efficient querying
+CREATE INDEX idx_api_logs_timestamp ON api_logs(timestamp DESC);
+CREATE INDEX idx_api_logs_service ON api_logs(service);
+CREATE INDEX idx_api_logs_user_id ON api_logs(user_id);
+
+-- Function to clean up old logs (keep last 30 days)
+CREATE OR REPLACE FUNCTION cleanup_old_api_logs()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM api_logs WHERE timestamp < NOW() - INTERVAL '30 days';
+END;
+$$ LANGUAGE plpgsql;
+

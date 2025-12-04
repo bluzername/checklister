@@ -20,3 +20,6 @@ export function WatchlistTab({ onSelectItem }: WatchlistTabProps) {
 }
 
 
+
+
+

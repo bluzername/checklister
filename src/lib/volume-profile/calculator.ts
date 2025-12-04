@@ -497,3 +497,6 @@ function calculateConfidence(
   return Math.min(100, confidence);
 }
 
+
+
+

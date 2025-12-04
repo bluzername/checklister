@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
-import { getApiStats, getRecentLogs } from '@/lib/data-services/logger';
+import { getApiStatsFromDb, getRecentLogsFromDb, isSupabaseLoggingEnabled } from '@/lib/data-services/logger';
 import { getCacheStats } from '@/lib/data-services/cache';
 
 export async function GET() {
     try {
-        const stats = getApiStats();
-        const logs = getRecentLogs(50);
+        // Use Supabase-backed functions for persistent stats
+        const stats = await getApiStatsFromDb();
+        const logs = await getRecentLogsFromDb(50);
         const cacheStats = getCacheStats();
 
         return NextResponse.json({
             stats,
             logs,
             cacheStats,
+            persistence: isSupabaseLoggingEnabled() ? 'supabase' : 'memory',
         });
     } catch (error) {
         console.error('Error fetching admin stats:', error);
@@ -21,4 +23,7 @@ export async function GET() {
         );
     }
 }
+
+
+
 
