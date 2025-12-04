@@ -81,7 +81,9 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
                     comparison = (a.profit_loss_percent || 0) - (b.profit_loss_percent || 0);
                     break;
                 case 'pl_dollar':
-                    comparison = (a.profit_loss || 0) - (b.profit_loss || 0);
+                    const aDollarPL = (a.profit_loss || 0) * (a.remaining_shares ?? a.quantity);
+                    const bDollarPL = (b.profit_loss || 0) * (b.remaining_shares ?? b.quantity);
+                    comparison = aDollarPL - bDollarPL;
                     break;
                 case 'action':
                     comparison = (actionPriority[a.action || 'HOLD'] || 99) - (actionPriority[b.action || 'HOLD'] || 99);

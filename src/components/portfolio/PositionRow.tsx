@@ -114,9 +114,9 @@ export function PositionRow({ position, onDelete, onSelect, onUpdate }: Position
         onUpdate();
     };
 
-    const profitLoss = position.profit_loss ?? 0;
+    const profitLossPerShare = position.profit_loss ?? 0;
     const profitLossPercent = position.profit_loss_percent ?? 0;
-    const isProfit = profitLoss >= 0;
+    const isProfit = profitLossPerShare >= 0;
 
     // Get trading plan data
     const tradingPlan = position.analysis?.trading_plan;
@@ -167,7 +167,7 @@ export function PositionRow({ position, onDelete, onSelect, onUpdate }: Position
                 <td className="px-4 py-3 text-right">
                     {position.current_price ? (
                         <div className={`font-medium ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {isProfit ? '+' : '-'}${Math.abs(profitLoss).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {isProfit ? '+' : '-'}${Math.abs(profitLossPerShare * remainingShares).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                     ) : (
                         <div className="text-gray-400">--</div>
