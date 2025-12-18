@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Loader2, RefreshCw, Briefcase, ChevronUp, ChevronDown } from 'lucide-react';
+import { Loader2, RefreshCw, Briefcase, ChevronUp, ChevronDown, Clock } from 'lucide-react';
 import { PortfolioPosition } from '@/lib/types';
-import { analyzePortfolio } from '@/app/portfolio-actions';
+import { analyzePortfolioCached } from '@/app/portfolio-actions';
 import { AddPositionForm } from './AddPositionForm';
 import { PositionRow } from './PositionRow';
 
@@ -14,6 +14,18 @@ interface PortfolioListProps {
     onSelectPosition: (position: PortfolioPosition) => void;
 }
 
+function formatTimeAgo(timestamp: number | null): string {
+    if (!timestamp) return '';
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes === 1) return '1 min ago';
+    if (minutes < 60) return `${minutes} mins ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours === 1) return '1 hour ago';
+    return `${hours} hours ago`;
+}
+
 export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
     const [positions, setPositions] = useState<PortfolioPosition[]>([]);
     const [loading, setLoading] = useState(true);
@@ -21,20 +33,24 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
     const [error, setError] = useState<string | null>(null);
     const [sortField, setSortField] = useState<SortField>('ticker');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+    const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+    const [fromCache, setFromCache] = useState(false);
 
-    const loadPortfolio = useCallback(async (showRefresh = false) => {
-        if (showRefresh) setRefreshing(true);
+    const loadPortfolio = useCallback(async (forceRefresh = false) => {
+        if (forceRefresh) setRefreshing(true);
         else setLoading(true);
-        
-        const result = await analyzePortfolio();
-        
+
+        const result = await analyzePortfolioCached(forceRefresh);
+
         if (result.success) {
             setPositions(result.data || []);
+            setLastUpdated(result.lastUpdated);
+            setFromCache(result.fromCache);
             setError(null);
         } else {
             setError(result.error || 'Failed to load portfolio');
         }
-        
+
         setLoading(false);
         setRefreshing(false);
     }, []);
@@ -44,7 +60,7 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
     }, [loadPortfolio]);
 
     const handleRefresh = () => {
-        loadPortfolio(true);
+        loadPortfolio(true);  // Force refresh
     };
 
     const handleSort = (field: SortField) => {
@@ -113,14 +129,25 @@ export function PortfolioList({ onSelectPosition }: PortfolioListProps) {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <AddPositionForm onSuccess={() => loadPortfolio(true)} />
-                <button
-                    onClick={handleRefresh}
-                    disabled={refreshing}
-                    className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-                >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
+                <div className="flex items-center gap-3">
+                    {/* Cache status indicator */}
+                    {lastUpdated && (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>
+                                {fromCache ? 'Cached' : 'Updated'} {formatTimeAgo(lastUpdated)}
+                            </span>
+                        </div>
+                    )}
+                    <button
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             {error && (

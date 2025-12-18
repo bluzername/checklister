@@ -3,6 +3,12 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { analyzeTicker } from '@/lib/analysis';
 import { PortfolioPosition, PortfolioAction, AnalysisResult, PositionSells, PriceLevelSell } from '@/lib/types';
+import {
+  getCachedAnalysis,
+  setCachedAnalysis,
+  markCacheRefreshing,
+  invalidateCache
+} from '@/lib/portfolio/cache';
 
 export type SellPriceLevel = 'stop_loss' | 'pt1' | 'pt2' | 'pt3';
 
@@ -67,6 +73,9 @@ export async function addPosition(
             return { success: false, error: error.message };
         }
 
+        // Invalidate cache when position is added
+        invalidateCache(user.id);
+
         return { success: true, data: data as PortfolioPosition };
     } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -94,6 +103,9 @@ export async function deletePosition(id: string): Promise<{ success: boolean; er
         if (error) {
             return { success: false, error: error.message };
         }
+
+        // Invalidate cache when position is deleted
+        invalidateCache(user.id);
 
         return { success: true };
     } catch (error) {
@@ -172,6 +184,9 @@ export async function recordSellAtPrice(
         if (updateError) {
             return { success: false, error: updateError.message };
         }
+
+        // Invalidate cache when sells are recorded
+        invalidateCache(user.id);
 
         return { success: true };
     } catch (error) {
@@ -373,6 +388,129 @@ export async function analyzePosition(id: string): Promise<{
         };
     } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+}
+
+/**
+ * Cached portfolio analysis - returns cached data if fresh, otherwise fetches new data.
+ * Cache is valid for 15 minutes or until positions change.
+ */
+export async function analyzePortfolioCached(forceRefresh = false): Promise<{
+    success: boolean;
+    data?: PortfolioPosition[];
+    error?: string;
+    fromCache: boolean;
+    lastUpdated: number | null;
+    isStale: boolean;
+}> {
+    try {
+        if (!isSupabaseConfigured()) {
+            return { success: false, error: 'Database not configured', fromCache: false, lastUpdated: null, isStale: false };
+        }
+        const supabase = await createClient();
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            return { success: false, error: 'Not authenticated', fromCache: false, lastUpdated: null, isStale: false };
+        }
+
+        // Fetch raw positions from DB (fast)
+        const { data: rawPositions, error } = await supabase
+            .from('portfolios')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('date_added', { ascending: false });
+
+        if (error) {
+            return { success: false, error: error.message, fromCache: false, lastUpdated: null, isStale: false };
+        }
+
+        if (!rawPositions || rawPositions.length === 0) {
+            return { success: true, data: [], fromCache: false, lastUpdated: null, isStale: false };
+        }
+
+        // Check cache
+        const { cached, isStale, lastUpdated } = getCachedAnalysis(user.id, rawPositions);
+
+        // Return cached data if fresh and not forcing refresh
+        if (cached && !isStale && !forceRefresh) {
+            return {
+                success: true,
+                data: cached,
+                fromCache: true,
+                lastUpdated,
+                isStale: false
+            };
+        }
+
+        // Mark as refreshing to prevent duplicate refreshes
+        markCacheRefreshing(user.id, true);
+
+        try {
+            // Analyze each position (the slow part)
+            const analyzedPositions: PortfolioPosition[] = await Promise.all(
+                rawPositions.map(async (position) => {
+                    try {
+                        const analysis = await analyzeTicker(position.ticker);
+                        const action = computeAction(position as PortfolioPosition, analysis);
+                        const profitLoss = analysis.current_price - position.buy_price;
+                        const profitLossPercent = ((analysis.current_price - position.buy_price) / position.buy_price) * 100;
+
+                        // Calculate remaining shares
+                        const sells: PositionSells = position.sells || {};
+                        const totalSold =
+                            (sells.stop_loss?.shares_sold || 0) +
+                            (sells.pt1?.shares_sold || 0) +
+                            (sells.pt2?.shares_sold || 0) +
+                            (sells.pt3?.shares_sold || 0);
+                        const remaining_shares = position.quantity - totalSold;
+
+                        return {
+                            ...position,
+                            current_price: analysis.current_price,
+                            action,
+                            profit_loss: profitLoss,
+                            profit_loss_percent: profitLossPercent,
+                            analysis,
+                            remaining_shares,
+                        } as PortfolioPosition;
+                    } catch {
+                        // If analysis fails, return position without analysis
+                        const sells: PositionSells = position.sells || {};
+                        const totalSold =
+                            (sells.stop_loss?.shares_sold || 0) +
+                            (sells.pt1?.shares_sold || 0) +
+                            (sells.pt2?.shares_sold || 0) +
+                            (sells.pt3?.shares_sold || 0);
+                        return {
+                            ...position,
+                            remaining_shares: position.quantity - totalSold,
+                        } as PortfolioPosition;
+                    }
+                })
+            );
+
+            // Update cache
+            setCachedAnalysis(user.id, analyzedPositions, rawPositions);
+
+            return {
+                success: true,
+                data: analyzedPositions,
+                fromCache: false,
+                lastUpdated: Date.now(),
+                isStale: false
+            };
+        } finally {
+            markCacheRefreshing(user.id, false);
+        }
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            fromCache: false,
+            lastUpdated: null,
+            isStale: false
+        };
     }
 }
 
