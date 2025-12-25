@@ -9,7 +9,8 @@ CREATE TABLE portfolios (
   buy_price DECIMAL(10,2) NOT NULL,
   quantity DECIMAL(10,4) NOT NULL,
   date_added TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  notes TEXT
+  notes TEXT,
+  sells JSONB DEFAULT '{}'  -- Tracks partial sales at stop_loss, pt1, pt2, pt3
 );
 
 -- Watchlist table
