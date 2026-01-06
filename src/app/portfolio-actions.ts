@@ -9,7 +9,7 @@ import {
   markCacheRefreshing,
   invalidateCache
 } from '@/lib/portfolio/cache';
-import { logPortfolioOperation, updateActivityOutcome } from '@/lib/activity-logger';
+import { logPortfolioOperation } from '@/lib/activity-logger';
 
 export type SellPriceLevel = 'stop_loss' | 'pt1' | 'pt2' | 'pt3';
 
@@ -77,17 +77,7 @@ export async function addPosition(
         // Invalidate cache when position is added
         invalidateCache(user.id);
 
-        // Log the ADD_POSITION operation with full context
-        // Fetch current analysis to capture algorithm state at time of entry
-        let analysis: AnalysisResult | null = null;
-        try {
-            analysis = await analyzeTicker(ticker.toUpperCase());
-        } catch {
-            // Analysis failed, but we still log the operation
-            console.log(`[Portfolio] Could not fetch analysis for ${ticker} during logging`);
-        }
-
-        // Fire-and-forget logging (non-blocking)
+        // Fire-and-forget logging (non-blocking) - no extra API calls
         logPortfolioOperation(
             user.id,
             'ADD_POSITION',
@@ -98,8 +88,7 @@ export async function addPosition(
                 quantity: quantity,
                 notes: notes,
             },
-            analysis,
-            analysis?.recommendation
+            null  // Don't fetch analysis just for logging - avoids rate limits
         ).catch(err => console.error('[Portfolio] Logging error:', err));
 
         return { success: true, data: data as PortfolioPosition };
@@ -141,28 +130,8 @@ export async function deletePosition(id: string): Promise<{ success: boolean; er
         // Invalidate cache when position is deleted
         invalidateCache(user.id);
 
-        // Log the DELETE_POSITION operation with outcome tracking
+        // Log the DELETE_POSITION operation - no extra API calls
         if (position) {
-            let analysis: AnalysisResult | null = null;
-            try {
-                analysis = await analyzeTicker(position.ticker);
-            } catch {
-                // Analysis failed, continue with logging
-            }
-
-            // Calculate realized P/L for outcome tracking
-            const currentPrice = analysis?.current_price;
-            let realizedPnl: number | undefined;
-            let realizedPnlPercent: number | undefined;
-            let outcomeStatus: 'WIN' | 'LOSS' | 'CANCELLED' = 'CANCELLED';
-
-            if (currentPrice && position.buy_price) {
-                realizedPnl = (currentPrice - position.buy_price) * position.quantity;
-                realizedPnlPercent = ((currentPrice - position.buy_price) / position.buy_price) * 100;
-                outcomeStatus = realizedPnl >= 0 ? 'WIN' : 'LOSS';
-            }
-
-            // Log the deletion
             logPortfolioOperation(
                 user.id,
                 'DELETE_POSITION',
@@ -171,21 +140,10 @@ export async function deletePosition(id: string): Promise<{ success: boolean; er
                     position_id: id,
                     buy_price: position.buy_price,
                     quantity: position.quantity,
-                    notes: `Deleted with P/L: ${realizedPnlPercent?.toFixed(2) ?? 'N/A'}%`,
+                    notes: `Position deleted`,
                 },
-                analysis
+                null  // Don't fetch analysis just for logging - avoids rate limits
             ).catch(err => console.error('[Portfolio] Logging error:', err));
-
-            // Update the original ADD_POSITION entry with outcome
-            if (currentPrice) {
-                updateActivityOutcome(id, {
-                    outcome_price: currentPrice,
-                    outcome_date: new Date(),
-                    realized_pnl: realizedPnl ?? 0,
-                    realized_pnl_percent: realizedPnlPercent ?? 0,
-                    outcome_status: outcomeStatus,
-                }).catch(err => console.error('[Portfolio] Outcome update error:', err));
-            }
         }
 
         return { success: true };
@@ -269,18 +227,10 @@ export async function recordSellAtPrice(
         // Invalidate cache when sells are recorded
         invalidateCache(user.id);
 
-        // Log the RECORD_SELL operation with full context
-        let analysis: AnalysisResult | null = null;
-        try {
-            analysis = await analyzeTicker(position.ticker);
-        } catch {
-            // Analysis failed, continue with logging
-        }
-
         // Calculate P/L for this specific sell
-        const sellPnl = (sellPrice - position.buy_price) * sharesSold;
         const sellPnlPercent = ((sellPrice - position.buy_price) / position.buy_price) * 100;
 
+        // Log the RECORD_SELL operation - no extra API calls
         logPortfolioOperation(
             user.id,
             'RECORD_SELL',
@@ -294,7 +244,7 @@ export async function recordSellAtPrice(
                 price_level: priceLevel,
                 notes: `Sold ${sharesSold} shares at ${priceLevel.toUpperCase()} for $${sellPrice} (P/L: ${sellPnlPercent.toFixed(2)}%)`,
             },
-            analysis
+            null  // Don't fetch analysis just for logging - avoids rate limits
         ).catch(err => console.error('[Portfolio] Logging error:', err));
 
         return { success: true };

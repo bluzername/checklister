@@ -3,7 +3,7 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { analyzeTicker } from '@/lib/analysis';
 import { WatchlistItem, AnalysisResult } from '@/lib/types';
-import { logWatchlistOperation, logAnalysisOperation } from '@/lib/activity-logger';
+import { logWatchlistOperation } from '@/lib/activity-logger';
 
 export async function getWatchlist(): Promise<{ success: boolean; data?: WatchlistItem[]; error?: string }> {
     try {
@@ -65,20 +65,13 @@ export async function addToWatchlist(
             return { success: false, error: error.message };
         }
 
-        // Log the ADD_WATCHLIST operation with current analysis
-        let analysis: AnalysisResult | null = null;
-        try {
-            analysis = await analyzeTicker(ticker.toUpperCase());
-        } catch {
-            // Analysis failed, continue with logging
-        }
-
+        // Fire-and-forget logging - no extra API calls
         logWatchlistOperation(
             user.id,
             'ADD_WATCHLIST',
             ticker.toUpperCase(),
             { notes: notes },
-            analysis
+            null  // Don't fetch analysis just for logging - avoids rate limits
         ).catch(err => console.error('[Watchlist] Logging error:', err));
 
         return { success: true, data: data as WatchlistItem };
@@ -117,21 +110,14 @@ export async function removeFromWatchlist(id: string): Promise<{ success: boolea
             return { success: false, error: error.message };
         }
 
-        // Log the REMOVE_WATCHLIST operation
+        // Fire-and-forget logging - no extra API calls
         if (item) {
-            let analysis: AnalysisResult | null = null;
-            try {
-                analysis = await analyzeTicker(item.ticker);
-            } catch {
-                // Analysis failed, continue with logging
-            }
-
             logWatchlistOperation(
                 user.id,
                 'REMOVE_WATCHLIST',
                 item.ticker,
                 { notes: `Removed from watchlist. Original notes: ${item.notes || 'none'}` },
-                analysis
+                null  // Don't fetch analysis just for logging - avoids rate limits
             ).catch(err => console.error('[Watchlist] Logging error:', err));
         }
 
