@@ -13,6 +13,7 @@
 import YahooFinance from 'yahoo-finance2';
 import { cacheKey, getOrFetch, TTL } from '../data-services/cache';
 import { logApiCall } from '../data-services/logger';
+import { getHistoricalPrices } from '../data-services/price-provider';
 import { OHLCVCandle, IntradayDataResponse } from './types';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -160,66 +161,66 @@ async function estimateFrom4HDaily(ticker: string, asOfDate?: Date): Promise<Int
     const period1 = new Date(effectiveDate.getTime() - 30 * 24 * 60 * 60 * 1000);
     const period2 = effectiveDate;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const historical = await yahooFinance.chart(ticker, {
-      period1,
-      period2,
-      interval: '1d',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any;
+    // Use price provider (FMP/Yahoo) instead of Yahoo directly
+    const historical = await getHistoricalPrices(ticker, period1, period2);
 
-    if (!historical?.quotes?.length) {
+    if (!historical?.dates?.length) {
       return null;
     }
 
     // Create pseudo 4H candles from daily data
     // We'll split each daily candle into 2 pseudo-4H candles
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let candles4h: OHLCVCandle[] = historical.quotes
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((q: any) => q.close != null && q.open != null)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .flatMap((q: any) => {
-        const midPrice = (q.open + q.close) / 2;
-        const midHigh = (q.open > q.close) ? q.high : (q.high + midPrice) / 2;
-        const midLow = (q.open < q.close) ? q.low : (q.low + midPrice) / 2;
-        const timestamp = new Date(q.date).getTime();
+    let candles4h: OHLCVCandle[] = [];
 
-        return [
-          // First "4H" candle (morning session)
-          {
-            timestamp: timestamp,
-            date: new Date(timestamp).toISOString(),
-            open: q.open,
-            high: midHigh,
-            low: midLow,
-            close: midPrice,
-            volume: Math.round((q.volume || 0) / 2),
-          },
-          // Second "4H" candle (afternoon session)
-          {
-            timestamp: timestamp + 4 * 60 * 60 * 1000,
-            date: new Date(timestamp + 4 * 60 * 60 * 1000).toISOString(),
-            open: midPrice,
-            high: q.high,
-            low: q.low,
-            close: q.close,
-            volume: Math.round((q.volume || 0) / 2),
-          },
-        ];
+    for (let i = 0; i < historical.dates.length; i++) {
+      const open = historical.opens[i];
+      const close = historical.prices[i]; // prices = closes
+      const high = historical.highs[i];
+      const low = historical.lows[i];
+      const volume = historical.volumes[i];
+      const dateStr = historical.dates[i];
+
+      if (open == null || close == null) continue;
+
+      const midPrice = (open + close) / 2;
+      const midHigh = (open > close) ? high : (high + midPrice) / 2;
+      const midLow = (open < close) ? low : (low + midPrice) / 2;
+      const timestamp = new Date(dateStr).getTime();
+
+      // First "4H" candle (morning session)
+      candles4h.push({
+        timestamp: timestamp,
+        date: new Date(timestamp).toISOString(),
+        open: open,
+        high: midHigh,
+        low: midLow,
+        close: midPrice,
+        volume: Math.round((volume || 0) / 2),
       });
+
+      // Second "4H" candle (afternoon session)
+      candles4h.push({
+        timestamp: timestamp + 4 * 60 * 60 * 1000,
+        date: new Date(timestamp + 4 * 60 * 60 * 1000).toISOString(),
+        open: midPrice,
+        high: high,
+        low: low,
+        close: close,
+        volume: Math.round((volume || 0) / 2),
+      });
+    }
 
     // PIT Safety: Filter candles to only include those up to asOfDate
     if (asOfDate) {
       candles4h = filterCandlesByDate(candles4h, asOfDate);
     }
 
-    // Reverse to get newest first
-    candles4h = candles4h.reverse();
+    // Data comes newest-first from price provider, keep that order
+    // (no need to reverse)
 
     const latency = Date.now() - startTime;
     logApiCall({
-      service: 'yahoo',
+      service: 'fmp',
       operation: 'daily_to_4h_estimate',
       ticker,
       latency_ms: latency,
@@ -298,3 +299,4 @@ export function is4HDataReliable(data: IntradayDataResponse): boolean {
     (data.dataSource === 'yahoo_1h' || data.dataSource === 'estimated')
   );
 }
+

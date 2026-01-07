@@ -5,7 +5,8 @@ import { analyzeTicker } from '@/lib/analysis';
 import { WatchlistItem, AnalysisResult } from '@/lib/types';
 
 // Batch size for parallel processing - limits concurrent API calls to avoid rate limiting
-const ANALYSIS_BATCH_SIZE = 10;
+// Increased to 20 for faster analysis since FMP has generous rate limits (300/min)
+const ANALYSIS_BATCH_SIZE = 20;
 
 /**
  * Process items in batches to avoid rate limiting while maintaining good performance.
