@@ -12,6 +12,7 @@ import { UserMenu } from '@/components/auth/UserMenu';
 import { TabBar, TabType } from '@/components/tabs/TabBar';
 import { PortfolioTab } from '@/components/tabs/PortfolioTab';
 import { WatchlistTab } from '@/components/tabs/WatchlistTab';
+import { PerformanceTab } from '@/components/tabs/PerformanceTab';
 import { MethodologyTab } from '@/components/tabs/MethodologyTab';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
@@ -313,6 +314,10 @@ function HomeContent() {
 
             {activeTab === 'watchlist' && user && (
                 <WatchlistTab onSelectItem={handleSelectWatchlistItem} />
+            )}
+
+            {activeTab === 'performance' && user && (
+                <PerformanceTab />
             )}
 
             {activeTab === 'methodology' && (

@@ -1,9 +1,9 @@
 'use client';
 
-import { Briefcase, Eye, BarChart3, Lock, BookOpen } from 'lucide-react';
+import { Briefcase, Eye, BarChart3, Lock, BookOpen, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 
-export type TabType = 'portfolio' | 'watchlist' | 'analysis' | 'methodology';
+export type TabType = 'portfolio' | 'watchlist' | 'analysis' | 'performance' | 'methodology';
 
 interface TabBarProps {
     activeTab: TabType;
@@ -18,6 +18,7 @@ export function TabBar({ activeTab, onTabChange, onAuthRequired }: TabBarProps) 
         { id: 'portfolio' as TabType, label: 'Portfolio', icon: Briefcase, requiresAuth: true },
         { id: 'watchlist' as TabType, label: 'Watchlist', icon: Eye, requiresAuth: true },
         { id: 'analysis' as TabType, label: 'Analysis', icon: BarChart3, requiresAuth: false },
+        { id: 'performance' as TabType, label: 'Performance', icon: TrendingUp, requiresAuth: true },
         { id: 'methodology' as TabType, label: 'How It Works', icon: BookOpen, requiresAuth: false },
     ];
 
