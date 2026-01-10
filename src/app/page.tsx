@@ -12,6 +12,7 @@ import { UserMenu } from '@/components/auth/UserMenu';
 import { TabBar, TabType } from '@/components/tabs/TabBar';
 import { PortfolioTab } from '@/components/tabs/PortfolioTab';
 import { WatchlistTab } from '@/components/tabs/WatchlistTab';
+import { RecommendationsTab } from '@/components/tabs/RecommendationsTab';
 import { PerformanceTab } from '@/components/tabs/PerformanceTab';
 import { MethodologyTab } from '@/components/tabs/MethodologyTab';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -159,6 +160,15 @@ function HomeContent() {
             setTicker(item.ticker);
             handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
         }
+    };
+
+    const handleSelectRecommendation = (tickerSymbol: string) => {
+        setTicker(tickerSymbol);
+        setActiveTab('analysis');
+        // Trigger analysis for the selected ticker
+        setTimeout(() => {
+            handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
+        }, 0);
     };
 
     const handleAuthRequired = () => {
@@ -314,6 +324,10 @@ function HomeContent() {
 
             {activeTab === 'watchlist' && user && (
                 <WatchlistTab onSelectItem={handleSelectWatchlistItem} />
+            )}
+
+            {activeTab === 'recommendations' && user && (
+                <RecommendationsTab onSelectTicker={handleSelectRecommendation} />
             )}
 
             {activeTab === 'performance' && user && (
