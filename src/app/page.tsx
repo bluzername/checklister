@@ -13,6 +13,7 @@ import { TabBar, TabType } from '@/components/tabs/TabBar';
 import { PortfolioTab } from '@/components/tabs/PortfolioTab';
 import { WatchlistTab } from '@/components/tabs/WatchlistTab';
 import { RecommendationsTab } from '@/components/tabs/RecommendationsTab';
+import { PoliticianTab } from '@/components/tabs/PoliticianTab';
 import { PerformanceTab } from '@/components/tabs/PerformanceTab';
 import { MethodologyTab } from '@/components/tabs/MethodologyTab';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -328,6 +329,10 @@ function HomeContent() {
 
             {activeTab === 'recommendations' && user && (
                 <RecommendationsTab onSelectTicker={handleSelectRecommendation} />
+            )}
+
+            {activeTab === 'politician' && user && (
+                <PoliticianTab onSelectTicker={handleSelectRecommendation} />
             )}
 
             {activeTab === 'performance' && user && (
