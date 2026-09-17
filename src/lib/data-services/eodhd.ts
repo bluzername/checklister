@@ -6,8 +6,8 @@
 
 import { withLogging } from './logger';
 import { cacheKey, getOrFetch, TTL } from './cache';
+import { EODHD_BASE_URL } from '@/lib/config/providers';
 
-const EODHD_BASE_URL = 'https://eodhd.com/api';
 
 export interface FundamentalsData {
     eps_actual: number | null;

@@ -12,6 +12,11 @@ permissions:
   statuses: write
   pull-requests: write
 
+env:
+  # Placeholders so `next build` can evaluate server modules without real credentials.
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,11 +28,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      # Informational until the 43 pre-existing eslint errors on main are fixed
+      # (react-hooks/static-components, set-state-in-effect, no-explicit-any).
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Check script targets
+        run: npm run scripts:check
+
+      - name: Unit tests
+        run: npm test
 
       - name: Run build
         id: build

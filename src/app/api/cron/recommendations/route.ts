@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { upsertRecommendations, cleanupOldRecommendations, RecommendationInput } from '@/app/recommendations-actions';
 import { calculateSoftSignalScore, InsiderTrade } from '@/lib/data-services/quiver';
+import { FMP_BASE_URL } from '@/lib/config/providers';
 
-const FMP_BASE_URL = 'https://financialmodelingprep.com/stable';
 
 // FMP API response type
 interface FMPInsiderTrade {
