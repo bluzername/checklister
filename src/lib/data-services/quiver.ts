@@ -11,8 +11,8 @@
 
 import { withLogging, logApiCall } from './logger';
 import { cacheKey, getOrFetch, TTL } from './cache';
+import { FMP_BASE_URL } from '@/lib/config/providers';
 
-const FMP_BASE_URL = 'https://financialmodelingprep.com/stable';
 
 // ============================================
 // TYPES

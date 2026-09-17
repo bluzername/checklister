@@ -7,6 +7,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { withLogging } from './logger';
 import { cacheKey, getOrFetch, TTL } from './cache';
 
+const DEFAULT_SENTIMENT_MODEL = 'claude-haiku-4-5-20251001';
+const SENTIMENT_MODEL = process.env.ANTHROPIC_MODEL || DEFAULT_SENTIMENT_MODEL;
+
 export interface SentimentData {
     sentiment_score: number;        // -1 to +1
     sentiment_label: 'VERY_NEGATIVE' | 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE' | 'VERY_POSITIVE';
@@ -87,7 +90,7 @@ Respond ONLY with valid JSON in this exact format:
 }`;
 
         const message = await anthropic.messages.create({
-            model: 'claude-3-haiku-20240307',
+            model: SENTIMENT_MODEL,
             max_tokens: 500,
             messages: [
                 {
