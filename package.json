@@ -36,7 +36,7 @@
     "recharts": "^3.5.0",
     "tailwind-merge": "^3.4.0",
     "uuid": "^13.0.0",
-    "yahoo-finance2": "^3.10.2"
+    "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
