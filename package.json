@@ -21,20 +21,20 @@
     "optimize:veto": "npx tsx scripts/optimize-veto-threshold.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.0",
-    "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.116.0",
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/uuid": "^10.0.0",
     "better-sqlite3": "^12.5.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.554.0",
-    "next": "^16.3.5",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "recharts": "^3.5.0",
-    "tailwind-merge": "^3.4.0",
+    "next": "^16.3.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.7.0",
     "uuid": "^13.0.0",
     "yahoo-finance2": "^3.10.2"
   },
@@ -45,12 +45,12 @@
     "@types/react-dom": "^19",
     "dotenv": "^17.2.3",
     "eslint": "^9",
-    "eslint-config-next": "^16.3.5",
-    "pg": "^8.16.3",
-    "playwright": "^1.57.0",
+    "eslint-config-next": "^16.3.6",
+    "pg": "^8.23.0",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   }
 }
